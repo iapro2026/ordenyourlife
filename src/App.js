@@ -26,6 +26,13 @@ const DEFAULT_USERS = [
   { id:"u3", name:"Hijo/a", role:"child", emoji:"🧒", pin:"0000", color:"#F59E0B" },
 ];
 const DEFAULT_BUDGETS = { Supermercado:500, Servicios:200, Ocio:150, Transporte:100, Otros:200 };
+const BOTE_COLORS  = ["#22C55E","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06C99B","#F97316"];
+const DEFAULT_BOTES = [
+  { name:"Ahorro",       pct:20, color:"#22C55E" },
+  { name:"Gastos fijos", pct:50, color:"#3B82F6" },
+  { name:"Ocio",         pct:20, color:"#F59E0B" },
+  { name:"Imprevistos",  pct:10, color:"#EF4444" },
+];
 
 // ─── MENU CONSTANTS ───────────────────────────────────────────────────────────
 const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
@@ -168,6 +175,8 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [tasks, setTasks]               = useState([]);
   const [budgets, setBudgets]           = useState(DEFAULT_BUDGETS);
+  const [botes, setBotes]               = useState([]);
+  const [botesLoaded, setBotesLoaded]   = useState(false);
   const [fbLoading, setFbLoading]       = useState(true);
   const [currentUser, setCurrentUser]   = useState(null);
   const [loginStep, setLoginStep]       = useState({ selectUser:true, selectedUser:null });
@@ -201,6 +210,8 @@ export default function App() {
       if (!mSnap.exists()) await setDoc(doc(db,"menuData","current"), { menu:JSON.parse(JSON.stringify(DEFAULT_MENU)), people:2, updatedAt:Date.now() });
       const pSnap = await getDocs(collection(db,"pantryMenu"));
       if (pSnap.empty) for (const item of DEFAULT_PANTRY_MENU) await setDoc(doc(db,"pantryMenu",item.id), item);
+      const boSnap = await getDocs(collection(db,"botes"));
+      if (boSnap.empty) for (const b of DEFAULT_BOTES) { const id=`bote_${b.name.toLowerCase().replace(/\s+/g,"-")}`; await setDoc(doc(db,"botes",id), {...b,id,amount:0}); }
     };
     seed();
     const u1 = onSnapshot(collection(db,"users"),        s=>setUsers(s.docs.map(d=>({...d.data(),id:d.id}))));
@@ -209,7 +220,8 @@ export default function App() {
     const u4 = onSnapshot(doc(db,"config","budgets"),    s=>{ if(s.exists()) setBudgets(s.data()); setFbLoading(false); });
     const u5 = onSnapshot(doc(db,"menuData","current"),  s=>{ if(s.exists()){ const d=s.data(); setMenuData(c=>({...c,menu:d.menu||DEFAULT_MENU,people:d.people??2})); } setMenuDocLoaded(true); });
     const u6 = onSnapshot(collection(db,"pantryMenu"),   s=>{ setMenuData(c=>({...c,pantryMenu:s.docs.map(d=>({...d.data(),id:d.id}))})); setPantryLoaded(true); });
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
+    const u7 = onSnapshot(collection(db,"botes"),        s=>{ setBotes(s.docs.map(d=>({...d.data(),id:d.id}))); setBotesLoaded(true); });
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
   }, []);
 
   function showToast(msg, color="#22C55E") { setToast({msg,color}); setTimeout(()=>setToast(null),2500); }
@@ -272,7 +284,7 @@ export default function App() {
   },[menuData]);
   const lowN = useMemo(()=>lowItems(menuData.pantryMenu).length,[menuData.pantryMenu]);
 
-  const loading = fbLoading || !menuDocLoaded || !pantryLoaded;
+  const loading = fbLoading || !menuDocLoaded || !pantryLoaded || !botesLoaded;
 
   if (loading) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#F8FAFC"}}>
@@ -336,7 +348,7 @@ export default function App() {
     <div style={S.root}>
       <style>{MENU_STYLES}</style>
       {toast && <div style={{...S.toast,background:toast.color}} className="fm">{toast.msg}</div>}
-      {modal && <FamilyModal modal={modal} setModal={setModal} users={users} budgets={budgets} currentUser={currentUser} showToast={showToast}/>}
+      {modal && <FamilyModal modal={modal} setModal={setModal} users={users} budgets={budgets} botes={botes} currentUser={currentUser} showToast={showToast}/>}
       {openMeal && (
         <MealModal day={DAYS[dayIdx]} mt={MEAL_TYPES.find(m=>m.k===openMeal.k)} meal={menuData.menu[DAYS[dayIdx]][openMeal.k]}
           pantry={menuData.pantryMenu} people={menuData.people}
@@ -380,11 +392,12 @@ export default function App() {
           <main style={S.main}>
             {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast}/>}
             {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
+            {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} setModal={setModal} showToast={showToast}/>}
             {familyScreen==="tasks"    && <TasksScreen    currentUser={currentUser} isAdmin={isAdmin} myTasks={myTasks()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="settings" && <SettingsScreen currentUser={currentUser} isAdmin={isAdmin} users={users} showToast={showToast} setCurrentUser={setCurrentUser}/>}
           </main>
           <nav style={S.nav}>
-            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
+            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
               <button key={k} onClick={()=>setFamilyScreen(k)} style={{...S.navBtn,...(familyScreen===k?{color:currentUser.color,borderTop:`2px solid ${currentUser.color}`}:{})}}>
                 <span style={{fontSize:20}}>{ic}</span><span style={{fontSize:10,fontWeight:600}}>{lb}</span>
               </button>
@@ -671,7 +684,7 @@ function SettingsScreen({currentUser,isAdmin,users,showToast,setCurrentUser}) {
   );
 }
 
-function FamilyModal({modal,setModal,users,budgets,currentUser,showToast}) {
+function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast}) {
   const close=()=>setModal(null);
   const W=({title,children})=>(
     <div style={S.overlay} onClick={e=>{if(e.target===e.currentTarget)close();}}>
@@ -683,19 +696,28 @@ function FamilyModal({modal,setModal,users,budgets,currentUser,showToast}) {
       </div>
     </div>
   );
-  if (modal.type==="addTx") return <AddTxModal W={W} close={close} currentUser={currentUser} showToast={showToast} initType={modal.data?.t}/>;
+  if (modal.type==="addTx") return <AddTxModal W={W} close={close} currentUser={currentUser} showToast={showToast} initType={modal.data?.t} botes={botes}/>;
   if (modal.type==="addTask") return <AddTaskModal W={W} close={close} users={users} currentUser={currentUser} showToast={showToast}/>;
   if (modal.type==="editBudget") return <EditBudgetModal W={W} close={close} budgets={budgets} currentUser={currentUser} showToast={showToast}/>;
+  if (modal.type==="addBote") return <AddBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast}/>;
+  if (modal.type==="editBote") return <EditBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast} bote={modal.data}/>;
+  if (modal.type==="withdrawBote") return <WithdrawBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast} bote={modal.data}/>;
   return null;
 }
 
-function AddTxModal({W,close,currentUser,showToast,initType}) {
+function AddTxModal({W,close,currentUser,showToast,initType,botes}) {
   const [form,setForm]=useState({type:initType||"expense",category:"",amount:"",note:"",date:new Date().toISOString().slice(0,10)});
   const cats=form.type==="income"?INCOME_CATS:EXPENSE_CATS;
   async function submit(){
     if(!form.category||!form.amount||isNaN(Number(form.amount))){showToast("Completa categoría e importe","#EF4444");return;}
     const id=`tx_${Date.now()}`;
-    await setDoc(doc(db,"transactions",id),{...form,amount:Number(form.amount),userId:currentUser.id,id});
+    const amount=Number(form.amount);
+    await setDoc(doc(db,"transactions",id),{...form,amount,userId:currentUser.id,id});
+    if (form.type==="income" && botes?.length) {
+      const batch=writeBatch(db);
+      botes.forEach(b=>{ batch.update(doc(db,"botes",b.id), { amount:+(( b.amount||0)+amount*(b.pct||0)/100).toFixed(2) }); });
+      await batch.commit();
+    }
     showToast(form.type==="income"?"Ingreso añadido 📈":"Gasto registrado 📉"); close();
   }
   return (
@@ -756,6 +778,120 @@ function EditBudgetModal({W,close,budgets,currentUser,showToast}) {
         <div key={cat}><label style={S.lbl} className="fm">{cat}</label><input style={S.inp} type="number" value={form[cat]} onChange={e=>setForm(f=>({...f,[cat]:Number(e.target.value)}))} className="fb"/></div>
       ))}
       <button onClick={save} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Guardar</button>
+    </W>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BOTES (SAVINGS JARS)
+// ══════════════════════════════════════════════════════════════════════════════
+function BotesScreen({currentUser,isAdmin,botes,setModal,showToast}) {
+  const totalPct = botes.reduce((a,b)=>a+(b.pct||0),0);
+  async function delBote(id){ if(!window.confirm("¿Eliminar este bote?")) return; await deleteDoc(doc(db,"botes",id)); showToast("Bote eliminado","#EF4444"); }
+  return (
+    <div>
+      <div style={S.scrHead}>
+        <h2 style={S.title} className="fd">Botes 🪣</h2>
+        <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addBote"})}>＋</button>
+      </div>
+      {botes.length>0 && totalPct!==100 && (
+        <div style={{background:"#FEF3C7",border:"2px solid #FCD34D",borderRadius:14,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
+          <AlertTriangle className="w-4 h-4" style={{color:"#B45309",flexShrink:0}}/>
+          <span style={{fontSize:13,color:"#92400E",fontWeight:600}} className="fm">Los porcentajes suman {totalPct}%, deberían sumar 100%.</span>
+        </div>
+      )}
+      {botes.length===0 && <p style={S.empty} className="fm">Aún no hay botes. Crea el primero.</p>}
+      {botes.map(b=>(
+        <div key={b.id} style={S.card}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:16,color:"#1E293B"}} className="fb">{b.name}</div>
+              <div style={{fontSize:12,color:b.color,fontWeight:600}} className="fm">{b.pct}% de los ingresos</div>
+            </div>
+            <div style={{display:"flex",gap:2}}>
+              <button onClick={()=>setModal({type:"editBote",data:b})} style={S.iconBtn}>✏️</button>
+              {isAdmin && <button onClick={()=>delBote(b.id)} style={S.iconBtn}>🗑️</button>}
+            </div>
+          </div>
+          <div style={{fontSize:26,fontWeight:800,color:"#1E293B",marginBottom:10}} className="fd">{(b.amount||0).toLocaleString("es-ES")} €</div>
+          <div style={{height:8,background:"#F1F5F9",borderRadius:99,overflow:"hidden",marginBottom:12}}>
+            <div style={{height:"100%",width:`${Math.min(b.pct||0,100)}%`,borderRadius:99,background:b.color,transition:"width 0.5s"}}/>
+          </div>
+          <button onClick={()=>setModal({type:"withdrawBote",data:b})} style={{...S.saveBtn,background:"#F1F5F9",color:"#64748B",width:"100%",fontSize:13,padding:"9px 0"}} className="fm">💸 Retirar dinero</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ColorPicker({value,onChange}) {
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+      {BOTE_COLORS.map(c=>(
+        <button key={c} type="button" onClick={()=>onChange(c)} style={{width:32,height:32,borderRadius:"50%",background:c,border:value===c?"3px solid #1E293B":"3px solid transparent",cursor:"pointer",padding:0}}/>
+      ))}
+    </div>
+  );
+}
+
+function AddBoteModal({W,close,currentUser,showToast}) {
+  const [form,setForm]=useState({name:"",pct:"",color:BOTE_COLORS[0]});
+  async function submit(){
+    const pct=Number(form.pct);
+    if(!form.name.trim()||!form.pct||isNaN(pct)||pct<=0||pct>100){ showToast("Nombre y porcentaje (1-100) requeridos","#EF4444"); return; }
+    const id=`bote_${form.name.toLowerCase().trim().replace(/\s+/g,"-")}-${Date.now()}`;
+    await setDoc(doc(db,"botes",id), { id,name:form.name.trim(),pct,color:form.color,amount:0 });
+    showToast("Bote creado 🪣"); close();
+  }
+  return (
+    <W title="Nuevo bote">
+      <label style={S.lbl} className="fm">Nombre</label>
+      <input style={S.inp} placeholder="Ej. Vacaciones" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Porcentaje (%)</label>
+      <input style={S.inp} type="number" min="0" max="100" placeholder="0" value={form.pct} onChange={e=>setForm(f=>({...f,pct:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Color</label>
+      <ColorPicker value={form.color} onChange={c=>setForm(f=>({...f,color:c}))}/>
+      <button onClick={submit} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Crear bote</button>
+    </W>
+  );
+}
+
+function EditBoteModal({W,close,currentUser,showToast,bote}) {
+  const [form,setForm]=useState({name:bote.name,pct:String(bote.pct),color:bote.color});
+  async function save(){
+    const pct=Number(form.pct);
+    if(!form.name.trim()||!form.pct||isNaN(pct)||pct<=0||pct>100){ showToast("Nombre y porcentaje (1-100) requeridos","#EF4444"); return; }
+    await updateDoc(doc(db,"botes",bote.id), { name:form.name.trim(), pct, color:form.color });
+    showToast("Bote actualizado ✅"); close();
+  }
+  return (
+    <W title="Editar bote">
+      <label style={S.lbl} className="fm">Nombre</label>
+      <input style={S.inp} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Porcentaje (%)</label>
+      <input style={S.inp} type="number" min="0" max="100" value={form.pct} onChange={e=>setForm(f=>({...f,pct:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Color</label>
+      <ColorPicker value={form.color} onChange={c=>setForm(f=>({...f,color:c}))}/>
+      <button onClick={save} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Guardar</button>
+    </W>
+  );
+}
+
+function WithdrawBoteModal({W,close,currentUser,showToast,bote}) {
+  const [amount,setAmount]=useState("");
+  async function submit(){
+    const n=Number(amount);
+    if(!amount||isNaN(n)||n<=0){ showToast("Introduce un importe válido","#EF4444"); return; }
+    const next=Math.max(0,+((bote.amount||0)-n).toFixed(2));
+    await updateDoc(doc(db,"botes",bote.id), { amount:next });
+    showToast(`Retirados ${n.toLocaleString("es-ES")} € de ${bote.name} 💸`); close();
+  }
+  return (
+    <W title={`Retirar de ${bote.name}`}>
+      <p style={{fontSize:13,color:"#64748B",marginBottom:12}} className="fm">Disponible: {(bote.amount||0).toLocaleString("es-ES")} €</p>
+      <label style={S.lbl} className="fm">Importe a retirar (€)</label>
+      <input style={S.inp} type="number" placeholder="0.00" value={amount} onChange={e=>setAmount(e.target.value)} className="fb"/>
+      <button onClick={submit} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Confirmar retiro</button>
     </W>
   );
 }
