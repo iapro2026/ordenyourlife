@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, getDocs } from "firebase/firestore";
+import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, getDoc, getDocs, writeBatch } from "firebase/firestore";
 import { Coffee, UtensilsCrossed, Moon, ShoppingBasket, X, Clock, Check, CalendarDays, Package, AlertTriangle, Plus, Minus, Trash2, Shuffle, RefreshCw, Loader2, Circle, Save, Sparkles, Users, Wand2, Lightbulb, Receipt, Camera, Upload } from "lucide-react";
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
@@ -40,7 +40,6 @@ const PANTRY_CATS  = ["Básicos","Especias","Panadería","Frescos","Verduras","F
 const CAT_COLOR    = { Básicos:"#9CA3AF",Especias:"#F59E0B",Panadería:"#FB923C",Frescos:"#3B82F6",Verduras:"#10B981",Frutas:"#EC4899",Legumbres:"#D97706",Cereales:"#EAB308",Proteínas:"#EF4444","Frutos secos":"#EA580C",Conservas:"#6366F1",Otros:"#9CA3AF" };
 const UNITS        = ["g","kg","ml","l","ud","reb","filete","diente","rama"];
 const BASE         = 2;
-const MENU_KEY     = "menu-week-v4";
 
 // ─── MENU HELPERS ─────────────────────────────────────────────────────────────
 const mk  = (name,mins,ings,steps,e,iq) => ({ name,mins,ingredients:ings,steps,e,iq,status:"pending",consumed:null,improvisedName:"" });
@@ -48,11 +47,21 @@ const ing = (n,q,u) => ({ name:n,qty:q,unit:u });
 const norm    = s => (s||"").toLowerCase().trim();
 const scaleI  = (i,ppl) => ({ ...i, qty:+(i.qty*ppl/BASE).toFixed(2) });
 const scaleIs = (xs,ppl) => xs.map(x=>scaleI(x,ppl));
-const applyDelta = (pantry,ings,sign) => {
-  const next=pantry.map(x=>({...x}));
-  ings.forEach(i=>{ const k=norm(i.name); const idx=next.findIndex(x=>norm(x.name)===k); if(idx>=0) next[idx].qty=Math.max(0,+(next[idx].qty+sign*i.qty).toFixed(2)); else if(sign<0) next.push({id:k+"-"+Date.now(),name:i.name,qty:0,unit:i.unit,threshold:0,cat:"Otros"}); });
-  return next;
-};
+async function applyPantryDelta(db, pantry, restock, consume) {
+  const net = {};
+  (restock||[]).forEach(i=>{ const k=norm(i.name); net[k]=net[k]||{name:i.name,unit:i.unit,qty:0}; net[k].qty += i.qty; });
+  (consume||[]).forEach(i=>{ const k=norm(i.name); net[k]=net[k]||{name:i.name,unit:i.unit,qty:0}; net[k].qty -= i.qty; });
+  const batch = writeBatch(db);
+  let touched = false;
+  Object.entries(net).forEach(([k,d])=>{
+    if (d.qty===0) return;
+    touched = true;
+    const existing = pantry.find(x=>norm(x.name)===k);
+    if (existing) batch.update(doc(db,"pantryMenu",existing.id), { qty:Math.max(0,+(existing.qty+d.qty).toFixed(2)) });
+    else if (d.qty<0) { const id=k+"-"+Date.now(); batch.set(doc(db,"pantryMenu",id), { id,name:d.name,qty:0,unit:d.unit,threshold:0,cat:"Otros" }); }
+  });
+  if (touched) await batch.commit();
+}
 const lowItems = pantry => pantry.filter(x=>x.threshold>0&&x.qty<=x.threshold).sort((a,b)=>(a.qty/Math.max(a.threshold,1))-(b.qty/Math.max(b.threshold,1)));
 const pp = (n,q,u,t,c) => ({ id:n.toLowerCase().replace(/\s+/g,"-"),name:n,qty:q,unit:u,threshold:t,cat:c });
 
@@ -165,11 +174,10 @@ export default function App() {
   const [pinInput, setPinInput]         = useState("");
   const [pinError, setPinError]         = useState(false);
 
-  // ── Menu state (shared storage) ──────────────────────────────────────────
-  const [menuData, setMenuData]   = useState(initMenuData);
-  const [menuLoaded, setMenuLoaded] = useState(false);
-  const [, setSynced]             = useState(Date.now());
-  const menuRef = useRef(0);
+  // ── Menu state (Firebase) ────────────────────────────────────────────────
+  const [menuData, setMenuData]     = useState(initMenuData);
+  const [menuDocLoaded, setMenuDocLoaded]   = useState(false);
+  const [pantryLoaded, setPantryLoaded]     = useState(false);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [appSection, setAppSection] = useState("family"); // family | menu
@@ -189,38 +197,19 @@ export default function App() {
       if (uSnap.empty) for (const u of DEFAULT_USERS) await setDoc(doc(db,"users",u.id), u);
       const bSnap = await getDocs(collection(db,"config"));
       if (bSnap.empty) await setDoc(doc(db,"config","budgets"), DEFAULT_BUDGETS);
+      const mSnap = await getDoc(doc(db,"menuData","current"));
+      if (!mSnap.exists()) await setDoc(doc(db,"menuData","current"), { menu:JSON.parse(JSON.stringify(DEFAULT_MENU)), people:2, updatedAt:Date.now() });
+      const pSnap = await getDocs(collection(db,"pantryMenu"));
+      if (pSnap.empty) for (const item of DEFAULT_PANTRY_MENU) await setDoc(doc(db,"pantryMenu",item.id), item);
     };
     seed();
     const u1 = onSnapshot(collection(db,"users"),        s=>setUsers(s.docs.map(d=>({...d.data(),id:d.id}))));
     const u2 = onSnapshot(collection(db,"transactions"), s=>setTransactions(s.docs.map(d=>({...d.data(),id:d.id}))));
     const u3 = onSnapshot(collection(db,"tasks"),        s=>setTasks(s.docs.map(d=>({...d.data(),id:d.id}))));
     const u4 = onSnapshot(doc(db,"config","budgets"),    s=>{ if(s.exists()) setBudgets(s.data()); setFbLoading(false); });
-    return () => { u1(); u2(); u3(); u4(); };
-  }, []);
-
-  // ── Menu shared storage ──────────────────────────────────────────────────
-  useEffect(() => {
-    let cancel = false;
-    const load = async () => {
-      try {
-        const r = await window.storage?.get(MENU_KEY, true);
-        if (cancel) return;
-        if (r?.value) {
-          const parsed = typeof r.value==="string" ? JSON.parse(r.value) : r.value;
-          if (parsed.updatedAt > menuRef.current) { setMenuData({ ...initMenuData(), ...parsed }); menuRef.current = parsed.updatedAt; setSynced(Date.now()); }
-        }
-      } catch {}
-      if (!cancel) setMenuLoaded(true);
-    };
-    load();
-    const t = setInterval(load, 4000);
-    return () => { cancel=true; clearInterval(t); };
-  }, []);
-
-  const saveMenu = useCallback(async d => {
-    const s = { ...d, updatedAt:Date.now() };
-    setMenuData(s); menuRef.current = s.updatedAt;
-    try { await window.storage?.set(MENU_KEY, JSON.stringify(s), true); setSynced(Date.now()); } catch {}
+    const u5 = onSnapshot(doc(db,"menuData","current"),  s=>{ if(s.exists()){ const d=s.data(); setMenuData(c=>({...c,menu:d.menu||DEFAULT_MENU,people:d.people??2})); } setMenuDocLoaded(true); });
+    const u6 = onSnapshot(collection(db,"pantryMenu"),   s=>{ setMenuData(c=>({...c,pantryMenu:s.docs.map(d=>({...d.data(),id:d.id}))})); setPantryLoaded(true); });
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
   }, []);
 
   function showToast(msg, color="#22C55E") { setToast({msg,color}); setTimeout(()=>setToast(null),2500); }
@@ -245,42 +234,45 @@ export default function App() {
   const getUser      = id => users.find(u=>u.id===id);
   const expByCat     = () => { const m={}; transactions.filter(t=>t.type==="expense").forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; };
 
-  // ── Menu actions ─────────────────────────────────────────────────────────
-  const updateMealItem = useCallback((day,k,nm) => {
-    setMenuData(c => {
-      const old=c.menu[day][k]; let pm=c.pantryMenu;
-      if(old.consumed) pm=applyDelta(pm,old.consumed,+1);
-      if(nm.consumed)  pm=applyDelta(pm,nm.consumed,-1);
-      const next={...c,menu:{...c.menu,[day]:{...c.menu[day],[k]:nm}},pantryMenu:pm};
-      saveMenu(next); return next;
-    });
-  },[saveMenu]);
+  // ── Menu actions (Firebase) ──────────────────────────────────────────────
+  const updateMealItem = useCallback(async (day,k,nm) => {
+    const old = menuData.menu[day][k];
+    await applyPantryDelta(db, menuData.pantryMenu, old.consumed, nm.consumed);
+    await updateDoc(doc(db,"menuData","current"), { [`menu.${day}.${k}`]:nm, updatedAt:Date.now() });
+  },[menuData]);
 
-  const swapMealItem = useCallback((day,k,nm) => {
-    setMenuData(c => {
-      const old=c.menu[day][k]; let pm=c.pantryMenu;
-      if(old.consumed) pm=applyDelta(pm,old.consumed,+1);
-      const next={...c,menu:{...c.menu,[day]:{...c.menu[day],[k]:{...nm,status:"pending",consumed:null,improvisedName:""}}},pantryMenu:pm};
-      saveMenu(next); return next;
-    });
-  },[saveMenu]);
+  const swapMealItem = useCallback(async (day,k,nm) => {
+    const old = menuData.menu[day][k];
+    if (old.consumed) await applyPantryDelta(db, menuData.pantryMenu, old.consumed, null);
+    const reset = {...nm,status:"pending",consumed:null,improvisedName:""};
+    await updateDoc(doc(db,"menuData","current"), { [`menu.${day}.${k}`]:reset, updatedAt:Date.now() });
+  },[menuData]);
 
-  const updPantryMenu = useCallback((id,ch) => setMenuData(c=>{ const n={...c,pantryMenu:c.pantryMenu.map(p=>p.id===id?{...p,...ch}:p)}; saveMenu(n); return n; }),[saveMenu]);
-  const addPantryMenu = useCallback(it => setMenuData(c=>{ const n={...c,pantryMenu:[...c.pantryMenu,it]}; saveMenu(n); return n; }),[saveMenu]);
-  const delPantryMenu = useCallback(id => setMenuData(c=>{ const n={...c,pantryMenu:c.pantryMenu.filter(p=>p.id!==id)}; saveMenu(n); return n; }),[saveMenu]);
-  const addReceiptMenu = useCallback(items => {
-    setMenuData(c => {
-      let pm=[...c.pantryMenu.map(x=>({...x}))];
-      items.forEach(it=>{ const idx=pm.findIndex(p=>norm(p.name)===norm(it.name)); if(idx>=0) pm[idx].qty=+(pm[idx].qty+(+it.qty||0)).toFixed(2); else pm.push({id:norm(it.name).replace(/\s+/g,"-")+"-"+Date.now(),name:it.name,qty:+it.qty||1,unit:it.unit||"ud",threshold:+it.threshold||1,cat:it.cat||"Otros"}); });
-      const n={...c,pantryMenu:pm}; saveMenu(n); return n;
+  const updPantryMenu = useCallback(async (id,ch) => { await updateDoc(doc(db,"pantryMenu",id), ch); },[]);
+  const addPantryMenu = useCallback(async it => { const {id,...rest}=it; await setDoc(doc(db,"pantryMenu",id), {id,...rest}); },[]);
+  const delPantryMenu = useCallback(async id => { await deleteDoc(doc(db,"pantryMenu",id)); },[]);
+  const addReceiptMenu = useCallback(async items => {
+    const batch = writeBatch(db);
+    items.forEach(it=>{
+      const existing = menuData.pantryMenu.find(p=>norm(p.name)===norm(it.name));
+      if (existing) batch.update(doc(db,"pantryMenu",existing.id), { qty:+(existing.qty+(+it.qty||0)).toFixed(2) });
+      else { const id=norm(it.name).replace(/\s+/g,"-")+"-"+Date.now(); batch.set(doc(db,"pantryMenu",id), { id,name:it.name,qty:+it.qty||1,unit:it.unit||"ud",threshold:+it.threshold||1,cat:it.cat||"Otros" }); }
     });
+    await batch.commit();
     setReceiptOpen(false);
-  },[saveMenu]);
-  const setPeople = useCallback(p=>setMenuData(c=>{ const n={...c,people:p}; saveMenu(n); return n; }),[saveMenu]);
-  const resetMenu = useCallback(()=>{ if(window.confirm("¿Reiniciar la semana?")) saveMenu(initMenuData()); },[saveMenu]);
+  },[menuData]);
+  const setPeople = useCallback(async p => { await updateDoc(doc(db,"menuData","current"), { people:p, updatedAt:Date.now() }); },[]);
+  const resetMenu = useCallback(async () => {
+    if (!window.confirm("¿Reiniciar la semana?")) return;
+    await setDoc(doc(db,"menuData","current"), { menu:JSON.parse(JSON.stringify(DEFAULT_MENU)), people:2, updatedAt:Date.now() });
+    const batch = writeBatch(db);
+    menuData.pantryMenu.forEach(p=>batch.delete(doc(db,"pantryMenu",p.id)));
+    DEFAULT_PANTRY_MENU.forEach(p=>batch.set(doc(db,"pantryMenu",p.id), p));
+    await batch.commit();
+  },[menuData]);
   const lowN = useMemo(()=>lowItems(menuData.pantryMenu).length,[menuData.pantryMenu]);
 
-  const loading = fbLoading || !menuLoaded;
+  const loading = fbLoading || !menuDocLoaded || !pantryLoaded;
 
   if (loading) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#F8FAFC"}}>
