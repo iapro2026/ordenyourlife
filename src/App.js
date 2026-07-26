@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, getDoc, getDocs, writeBatch } from "firebase/firestore";
+import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, getDoc, getDocs, writeBatch, deleteField } from "firebase/firestore";
 import { Coffee, UtensilsCrossed, Moon, ShoppingBasket, X, Clock, Check, CalendarDays, Package, AlertTriangle, Plus, Minus, Trash2, Shuffle, RefreshCw, Loader2, Circle, Save, Sparkles, Users, Wand2, Lightbulb, Receipt, Camera, Upload } from "lucide-react";
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
@@ -1036,7 +1036,21 @@ function ShoppingView({pantry,menu,people}) {
     need.forEach((r,k)=>{ const pIdx=pantry.findIndex(x=>norm(x.name)===k); const stock=pIdx>=0?pantry[pIdx].qty:0; if(stock<r.qty){ if(!map.has(k)) map.set(k,{name:r.name,qty:+(r.qty-stock).toFixed(2),unit:r.unit,cat:pIdx>=0?pantry[pIdx].cat:"Otros",reason:"missing"}); } });
     return [...map.values()].sort((a,b)=>(a.cat||"").localeCompare(b.cat||""));
   },[pantry,menu,people,low]);
+
   const [check,setCheck]=useState({});
+  useEffect(() => onSnapshot(doc(db,"shoppingChecks","current"), s=>setCheck(s.exists()?(s.data().items||{}):{})), []);
+
+  useEffect(() => {
+    const validNames = new Set(items.map(x=>x.name));
+    const stale = Object.keys(check).filter(k=>!validNames.has(k));
+    if (stale.length) {
+      const patch = {}; stale.forEach(k=>{ patch[k]=deleteField(); });
+      setDoc(doc(db,"shoppingChecks","current"), { items:patch }, { merge:true });
+    }
+  }, [items, check]);
+
+  const toggleCheck = name => setDoc(doc(db,"shoppingChecks","current"), { items:{ [name]:!check[name] } }, { merge:true });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1047,7 +1061,7 @@ function ShoppingView({pantry,menu,people}) {
         <div className="text-center py-12 bg-emerald-50 border-2 border-emerald-200 rounded-3xl"><div className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-3 shadow-lg"><Check className="w-6 h-6 text-white"/></div><p className="fb text-emerald-900 font-medium">¡Tienes todo!</p></div>
       ) : (
         <div className="space-y-1.5">{items.map((x,i)=>{ const c=CAT_COLOR[x.cat]||"#9CA3AF"; return (
-          <button key={i} onClick={()=>setCheck(o=>({...o,[x.name]:!o[x.name]}))} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left shadow-sm transition-all"
+          <button key={i} onClick={()=>toggleCheck(x.name)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left shadow-sm transition-all"
             style={{background:check[x.name]?"#F9FAFB":"white",borderColor:check[x.name]?"#E5E7EB":c+"30",opacity:check[x.name]?0.5:1}}>
             <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0" style={{background:check[x.name]?c:"white",borderColor:check[x.name]?c:c+"60"}}>{check[x.name]&&<Check className="w-3.5 h-3.5 text-white"/>}</div>
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:c}}/>
