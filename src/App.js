@@ -27,6 +27,8 @@ const DEFAULT_USERS = [
 ];
 const DEFAULT_BUDGETS = { Supermercado:500, Servicios:200, Ocio:150, Transporte:100, Otros:200 };
 const BOTE_COLORS  = ["#22C55E","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06C99B","#F97316"];
+const MONTH_SHORT  = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const MONTH_LONG   = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const DEFAULT_BOTES = [
   { name:"Ahorro",       pct:20, color:"#22C55E" },
   { name:"Gastos fijos", pct:50, color:"#3B82F6" },
@@ -241,7 +243,9 @@ export default function App() {
   const isAdmin = currentUser?.role==="admin";
   const totalIncome  = transactions.filter(t=>t.type==="income").reduce((a,t)=>a+t.amount,0);
   const totalExpense = transactions.filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
-  const balance      = totalIncome-totalExpense;
+  const totalBotes   = botes.reduce((a,b)=>a+(b.amount||0),0);
+  const available    = totalIncome-totalBotes;
+  const balance      = available-totalExpense;
   const myTasks      = () => isAdmin ? tasks : tasks.filter(t=>t.assignedTo===currentUser?.id);
   const getUser      = id => users.find(u=>u.id===id);
   const expByCat     = () => { const m={}; transactions.filter(t=>t.type==="expense").forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; };
@@ -390,14 +394,16 @@ export default function App() {
       {appSection==="family" && (
         <div style={S.appWrap}>
           <main style={S.main}>
-            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast}/>}
-            {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
-            {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} setModal={setModal} showToast={showToast}/>}
+            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast}/>}
+            {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
+            {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} transactions={transactions} setModal={setModal} showToast={showToast}/>}
+            {familyScreen==="calendar" && <CalendarScreen currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} menu={menuData.menu} setModal={setModal}/>}
+            {familyScreen==="stats"    && <StatsScreen    currentUser={currentUser} isAdmin={isAdmin} transactions={transactions}/>}
             {familyScreen==="tasks"    && <TasksScreen    currentUser={currentUser} isAdmin={isAdmin} myTasks={myTasks()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="settings" && <SettingsScreen currentUser={currentUser} isAdmin={isAdmin} users={users} showToast={showToast} setCurrentUser={setCurrentUser}/>}
           </main>
           <nav style={S.nav}>
-            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
+            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["calendar","📅","Calendario"],["stats","📊","Stats"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
               <button key={k} onClick={()=>setFamilyScreen(k)} style={{...S.navBtn,...(familyScreen===k?{color:currentUser.color,borderTop:`2px solid ${currentUser.color}`}:{})}}>
                 <span style={{fontSize:20}}>{ic}</span><span style={{fontSize:10,fontWeight:600}}>{lb}</span>
               </button>
@@ -476,7 +482,7 @@ export default function App() {
 // ══════════════════════════════════════════════════════════════════════════════
 // FAMILY SCREENS
 // ══════════════════════════════════════════════════════════════════════════════
-function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,myTasks,transactions,setScreen,setModal,getUser}) {
+function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,myTasks,transactions,setScreen,setModal,getUser}) {
   const pending=myTasks.filter(t=>!t.done); const done=myTasks.filter(t=>t.done);
   return (
     <div>
@@ -486,9 +492,10 @@ function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,myTask
         <div style={{...S.card,background:`linear-gradient(135deg,${currentUser.color},#1E293B)`,color:"#fff",marginBottom:16}}>
           <div style={{fontSize:12,opacity:0.8}} className="fm">Balance familiar</div>
           <div style={{fontSize:32,fontWeight:800,margin:"6px 0"}} className="fd">{balance>=0?"+":""}{balance.toLocaleString("es-ES")} €</div>
-          <div style={{display:"flex",gap:24}}>
-            <div><div style={{fontSize:11,opacity:0.7}} className="fm">Ingresos</div><div style={{fontWeight:700}} className="fb">+{totalIncome.toLocaleString("es-ES")} €</div></div>
-            <div><div style={{fontSize:11,opacity:0.7}} className="fm">Gastos</div><div style={{fontWeight:700}} className="fb">-{totalExpense.toLocaleString("es-ES")} €</div></div>
+          <div style={{display:"flex",gap:20}}>
+            <div><div style={{fontSize:11,opacity:0.7}} className="fm">Ingresos totales</div><div style={{fontWeight:700}} className="fb">+{totalIncome.toLocaleString("es-ES")} €</div></div>
+            <div><div style={{fontSize:11,opacity:0.7}} className="fm">En botes</div><div style={{fontWeight:700}} className="fb">{totalBotes.toLocaleString("es-ES")} €</div></div>
+            <div><div style={{fontSize:11,opacity:0.7}} className="fm">Disponible</div><div style={{fontWeight:700}} className="fb">{available.toLocaleString("es-ES")} €</div></div>
           </div>
         </div>
       )}
@@ -524,7 +531,7 @@ function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,myTask
   );
 }
 
-function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,transactions,budgets,expByCat,setModal,showToast,getUser}) {
+function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,transactions,budgets,expByCat,setModal,showToast,getUser}) {
   const [tab,setTab]=useState("mov");
   if (!isAdmin) return <div style={{textAlign:"center",padding:60}}><div style={{fontSize:48}}>🔒</div><p style={{color:"#64748B",marginTop:12}} className="fm">Solo los administradores pueden ver las finanzas.</p></div>;
   async function delTx(id){ await deleteDoc(doc(db,"transactions",id)); showToast("Eliminado","#EF4444"); }
@@ -534,11 +541,19 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tra
         <h2 style={S.title} className="fd">Finanzas 💰</h2>
         <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addTx"})}>＋</button>
       </div>
-      <div style={{display:"flex",gap:10,marginBottom:16}}>
+      <div style={{display:"flex",gap:10,marginBottom:10}}>
         {[["Ingresos","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["Gastos","#EF4444",`-${totalExpense.toLocaleString("es-ES")} €`],["Balance",currentUser.color,`${balance>=0?"+":""}${balance.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
           <div key={l} style={{flex:1,background:"#fff",borderRadius:14,padding:12,borderLeft:`3px solid ${c}`,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
             <div style={{fontSize:11,color:"#64748B"}} className="fm">{l}</div>
             <div style={{fontSize:16,fontWeight:800,color:c}} className="fd">{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:16}}>
+        {[["Ingresos totales","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["En botes","#8B5CF6",`${totalBotes.toLocaleString("es-ES")} €`],["Disponible","#0EA5E9",`${available.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
+          <div key={l} style={{flex:1,background:"#F8FAFC",borderRadius:14,padding:12,border:`1.5px solid ${c}30`}}>
+            <div style={{fontSize:10,color:"#64748B"}} className="fm">{l}</div>
+            <div style={{fontSize:14,fontWeight:800,color:c}} className="fd">{v}</div>
           </div>
         ))}
       </div>
@@ -556,6 +571,7 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tra
                 <div>
                   <div style={{fontWeight:600,color:"#1E293B"}} className="fb">{tx.category}</div>
                   {tx.note && <div style={{fontSize:12,color:"#64748B"}} className="fm">{tx.note}</div>}
+                  {tx.type==="expense" && tx.boteNombre && <div style={{fontSize:11,color:"#8B5CF6",fontWeight:600}} className="fm">🪣 {tx.boteNombre}</div>}
                   <div style={{fontSize:11,color:"#94A3B8",marginTop:2}} className="fm">{tx.date} · {getUser(tx.userId)?.emoji} {getUser(tx.userId)?.name}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -696,7 +712,7 @@ function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast})
       </div>
     </div>
   );
-  if (modal.type==="addTx") return <AddTxModal W={W} close={close} currentUser={currentUser} showToast={showToast} initType={modal.data?.t} botes={botes}/>;
+  if (modal.type==="addTx") return <AddTxModal W={W} close={close} currentUser={currentUser} showToast={showToast} initType={modal.data?.t} initDate={modal.data?.date} botes={botes}/>;
   if (modal.type==="addTask") return <AddTaskModal W={W} close={close} users={users} currentUser={currentUser} showToast={showToast}/>;
   if (modal.type==="editBudget") return <EditBudgetModal W={W} close={close} budgets={budgets} currentUser={currentUser} showToast={showToast}/>;
   if (modal.type==="addBote") return <AddBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast}/>;
@@ -705,18 +721,29 @@ function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast})
   return null;
 }
 
-function AddTxModal({W,close,currentUser,showToast,initType,botes}) {
-  const [form,setForm]=useState({type:initType||"expense",category:"",amount:"",note:"",date:new Date().toISOString().slice(0,10)});
+function AddTxModal({W,close,currentUser,showToast,initType,initDate,botes}) {
+  const [form,setForm]=useState({type:initType||"expense",category:"",amount:"",note:"",date:initDate||new Date().toISOString().slice(0,10),boteId:""});
   const cats=form.type==="income"?INCOME_CATS:EXPENSE_CATS;
+  const amountNum = Number(form.amount)||0;
+  const selectedBote = botes?.find(b=>b.id===form.boteId);
+  const insufficientFunds = form.type==="expense" && selectedBote && amountNum>(selectedBote.amount||0);
   async function submit(){
     if(!form.category||!form.amount||isNaN(Number(form.amount))){showToast("Completa categoría e importe","#EF4444");return;}
     const id=`tx_${Date.now()}`;
     const amount=Number(form.amount);
-    await setDoc(doc(db,"transactions",id),{...form,amount,userId:currentUser.id,id});
+    const bote = form.type==="expense" ? botes?.find(b=>b.id===form.boteId) : null;
+    await setDoc(doc(db,"transactions",id),{
+      type:form.type, category:form.category, amount, note:form.note, date:form.date, userId:currentUser.id, id,
+      boteId: form.type==="expense" ? (form.boteId||null) : null,
+      boteNombre: form.type==="expense" ? (bote?bote.name:null) : null,
+    });
     if (form.type==="income" && botes?.length) {
       const batch=writeBatch(db);
       botes.forEach(b=>{ batch.update(doc(db,"botes",b.id), { amount:+(( b.amount||0)+amount*(b.pct||0)/100).toFixed(2) }); });
       await batch.commit();
+    }
+    if (form.type==="expense" && bote) {
+      await updateDoc(doc(db,"botes",bote.id), { amount:+((bote.amount||0)-amount).toFixed(2) });
     }
     showToast(form.type==="income"?"Ingreso añadido 📈":"Gasto registrado 📉"); close();
   }
@@ -724,7 +751,7 @@ function AddTxModal({W,close,currentUser,showToast,initType,botes}) {
     <W title={form.type==="income"?"Añadir ingreso":"Añadir gasto"}>
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         {["income","expense"].map(t=>(
-          <button key={t} onClick={()=>setForm(f=>({...f,type:t,category:""}))} style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,fontWeight:600,fontSize:14,cursor:"pointer",background:form.type===t?(t==="income"?"#22C55E":"#EF4444"):"#F1F5F9",color:form.type===t?"#fff":"#64748B"}} className="fm">
+          <button key={t} onClick={()=>setForm(f=>({...f,type:t,category:"",boteId:""}))} style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,fontWeight:600,fontSize:14,cursor:"pointer",background:form.type===t?(t==="income"?"#22C55E":"#EF4444"):"#F1F5F9",color:form.type===t?"#fff":"#64748B"}} className="fm">
             {t==="income"?"📈 Ingreso":"📉 Gasto"}
           </button>
         ))}
@@ -733,6 +760,29 @@ function AddTxModal({W,close,currentUser,showToast,initType,botes}) {
       <select style={S.inp} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} className="fb"><option value="">Seleccionar…</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select>
       <label style={S.lbl} className="fm">Importe (€)</label>
       <input style={S.inp} type="number" placeholder="0.00" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} className="fb"/>
+      {form.type==="expense" && botes?.length>0 && (
+        <div style={{marginBottom:16}}>
+          <label style={S.lbl} className="fm">¿De qué bote descontar?</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <button type="button" onClick={()=>setForm(f=>({...f,boteId:""}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:`2px solid ${form.boteId===""?"#94A3B8":"#E2E8F0"}`,background:form.boteId===""?"#F1F5F9":"#fff",cursor:"pointer",textAlign:"left"}}>
+              <span style={{width:14,height:14,borderRadius:"50%",background:"#CBD5E1",flexShrink:0}}/>
+              <span style={{flex:1,fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">Sin bote</span>
+            </button>
+            {botes.map(b=>(
+              <button type="button" key={b.id} onClick={()=>setForm(f=>({...f,boteId:b.id}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:`2px solid ${form.boteId===b.id?b.color:"#E2E8F0"}`,background:form.boteId===b.id?b.color+"15":"#fff",cursor:"pointer",textAlign:"left"}}>
+                <span style={{width:14,height:14,borderRadius:"50%",background:b.color,flexShrink:0}}/>
+                <span style={{flex:1,fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">{b.name}</span>
+                <span style={{fontSize:13,fontWeight:700,color:"#64748B"}} className="fd">{(b.amount||0).toLocaleString("es-ES")} €</span>
+              </button>
+            ))}
+          </div>
+          {insufficientFunds && (
+            <div style={{marginTop:8,padding:"8px 12px",borderRadius:10,background:"#FEE2E2",border:"1.5px solid #FCA5A5"}}>
+              <span style={{fontSize:12,color:"#B91C1C",fontWeight:600}} className="fm">⚠️ Este bote no tiene saldo suficiente ({(selectedBote.amount||0).toLocaleString("es-ES")} €), pero puedes continuar igualmente.</span>
+            </div>
+          )}
+        </div>
+      )}
       <label style={S.lbl} className="fm">Nota (opcional)</label>
       <input style={S.inp} placeholder="Descripción…" value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} className="fb"/>
       <label style={S.lbl} className="fm">Fecha</label>
@@ -785,8 +835,9 @@ function EditBudgetModal({W,close,budgets,currentUser,showToast}) {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOTES (SAVINGS JARS)
 // ══════════════════════════════════════════════════════════════════════════════
-function BotesScreen({currentUser,isAdmin,botes,setModal,showToast}) {
+function BotesScreen({currentUser,isAdmin,botes,transactions,setModal,showToast}) {
   const totalPct = botes.reduce((a,b)=>a+(b.pct||0),0);
+  const totalBotes = botes.reduce((a,b)=>a+(b.amount||0),0);
   async function delBote(id){ if(!window.confirm("¿Eliminar este bote?")) return; await deleteDoc(doc(db,"botes",id)); showToast("Bote eliminado","#EF4444"); }
   return (
     <div>
@@ -794,6 +845,12 @@ function BotesScreen({currentUser,isAdmin,botes,setModal,showToast}) {
         <h2 style={S.title} className="fd">Botes 🪣</h2>
         <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addBote"})}>＋</button>
       </div>
+      {botes.length>0 && (
+        <div style={{...S.card,background:"linear-gradient(135deg,#8B5CF6,#1E293B)",color:"#fff",marginBottom:16}}>
+          <div style={{fontSize:12,opacity:0.8}} className="fm">Total en botes</div>
+          <div style={{fontSize:28,fontWeight:800,margin:"4px 0"}} className="fd">{totalBotes.toLocaleString("es-ES")} €</div>
+        </div>
+      )}
       {botes.length>0 && totalPct!==100 && (
         <div style={{background:"#FEF3C7",border:"2px solid #FCD34D",borderRadius:14,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
           <AlertTriangle className="w-4 h-4" style={{color:"#B45309",flexShrink:0}}/>
@@ -801,7 +858,9 @@ function BotesScreen({currentUser,isAdmin,botes,setModal,showToast}) {
         </div>
       )}
       {botes.length===0 && <p style={S.empty} className="fm">Aún no hay botes. Crea el primero.</p>}
-      {botes.map(b=>(
+      {botes.map(b=>{
+        const history = transactions.filter(t=>t.type==="expense"&&t.boteId===b.id).sort((a,b2)=>b2.date>a.date?1:-1);
+        return (
         <div key={b.id} style={S.card}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
             <div>
@@ -818,8 +877,23 @@ function BotesScreen({currentUser,isAdmin,botes,setModal,showToast}) {
             <div style={{height:"100%",width:`${Math.min(b.pct||0,100)}%`,borderRadius:99,background:b.color,transition:"width 0.5s"}}/>
           </div>
           <button onClick={()=>setModal({type:"withdrawBote",data:b})} style={{...S.saveBtn,background:"#F1F5F9",color:"#64748B",width:"100%",fontSize:13,padding:"9px 0"}} className="fm">💸 Retirar dinero</button>
+          {history.length>0 && (
+            <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #F1F5F9"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:8}} className="fm">GASTOS DESCONTADOS ({history.length})</div>
+              {history.slice(0,5).map(tx=>(
+                <div key={tx.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}} className="fb">{tx.category}</div>
+                    <div style={{fontSize:10,color:"#94A3B8"}} className="fm">{tx.date}</div>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:"#EF4444"}} className="fb">-{tx.amount.toLocaleString("es-ES")} €</span>
+                </div>
+              ))}
+              {history.length>5 && <div style={{fontSize:11,color:"#94A3B8",marginTop:4}} className="fm">+{history.length-5} más…</div>}
+            </div>
+          )}
         </div>
-      ))}
+      );})}
     </div>
   );
 }
@@ -893,6 +967,337 @@ function WithdrawBoteModal({W,close,currentUser,showToast,bote}) {
       <input style={S.inp} type="number" placeholder="0.00" value={amount} onChange={e=>setAmount(e.target.value)} className="fb"/>
       <button onClick={submit} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Confirmar retiro</button>
     </W>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALENDAR SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0,10);
+  const [cursor,setCursor] = useState({y:today.getFullYear(), m:today.getMonth()});
+  const [selectedDate,setSelectedDate] = useState(null);
+
+  const first = new Date(cursor.y, cursor.m, 1);
+  const numDays = new Date(cursor.y, cursor.m+1, 0).getDate();
+  const startOffset = (first.getDay()+6)%7;
+  const monthPrefix = `${cursor.y}-${String(cursor.m+1).padStart(2,"0")}`;
+
+  const txByDay = useMemo(()=>{
+    const m={};
+    transactions.forEach(t=>{ if(t.date && t.date.startsWith(monthPrefix)) (m[t.date]=m[t.date]||[]).push(t); });
+    return m;
+  },[transactions,monthPrefix]);
+
+  const monthIncome  = useMemo(()=>transactions.filter(t=>t.type==="income"&&t.date?.startsWith(monthPrefix)).reduce((a,t)=>a+t.amount,0),[transactions,monthPrefix]);
+  const monthExpense = useMemo(()=>transactions.filter(t=>t.type==="expense"&&t.date?.startsWith(monthPrefix)).reduce((a,t)=>a+t.amount,0),[transactions,monthPrefix]);
+  const monthBalance = monthIncome-monthExpense;
+
+  function changeMonth(delta){
+    let m=cursor.m+delta, y=cursor.y;
+    if(m<0){m=11;y--;} else if(m>11){m=0;y++;}
+    setCursor({y,m}); setSelectedDate(null);
+  }
+
+  const cells=[];
+  for(let i=0;i<startOffset;i++) cells.push(null);
+  for(let d=1;d<=numDays;d++) cells.push(d);
+
+  const selTx = selectedDate ? (txByDay[selectedDate]||[]) : [];
+  const selIncome = selTx.filter(t=>t.type==="income").reduce((a,t)=>a+t.amount,0);
+  const selExpense = selTx.filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
+  const selWeekday = selectedDate ? DAYS[(new Date(selectedDate+"T00:00:00").getDay()+6)%7] : null;
+  const selMeals = selWeekday ? menu[selWeekday] : null;
+
+  return (
+    <div>
+      <h2 style={S.title} className="fd">Calendario 📅</h2>
+      {isAdmin && (
+        <div style={{display:"flex",gap:10,marginBottom:16,marginTop:12}}>
+          {[["Ingresos","#22C55E",`+${monthIncome.toLocaleString("es-ES")} €`],["Gastos","#EF4444",`-${monthExpense.toLocaleString("es-ES")} €`],["Balance",currentUser.color,`${monthBalance>=0?"+":""}${monthBalance.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
+            <div key={l} style={{flex:1,background:"#fff",borderRadius:14,padding:12,borderLeft:`3px solid ${c}`,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+              <div style={{fontSize:11,color:"#64748B"}} className="fm">{l}</div>
+              <div style={{fontSize:15,fontWeight:800,color:c}} className="fd">{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <button onClick={()=>changeMonth(-1)} style={{background:"#F1F5F9",border:"none",borderRadius:10,width:36,height:36,fontSize:16,cursor:"pointer",color:"#1E293B"}}>←</button>
+        <span style={{fontWeight:700,fontSize:16,color:"#1E293B",textTransform:"capitalize"}} className="fb">{MONTH_LONG[cursor.m]} {cursor.y}</span>
+        <button onClick={()=>changeMonth(1)} style={{background:"#F1F5F9",border:"none",borderRadius:10,width:36,height:36,fontSize:16,cursor:"pointer",color:"#1E293B"}}>→</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4}}>
+        {DAY_SHORT.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"#94A3B8"}} className="fm">{d}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+        {cells.map((d,i)=>{
+          if(d===null) return <div key={i}/>;
+          const dateStr=`${monthPrefix}-${String(d).padStart(2,"0")}`;
+          const dayTx = txByDay[dateStr]||[];
+          const hasIncome = isAdmin && dayTx.some(t=>t.type==="income");
+          const hasExpense = isAdmin && dayTx.some(t=>t.type==="expense");
+          const isToday = dateStr===todayStr;
+          return (
+            <button key={i} onClick={()=>setSelectedDate(dateStr)} style={{aspectRatio:"1",borderRadius:10,border:isToday?`2px solid ${currentUser.color}`:"1.5px solid #F1F5F9",background:selectedDate===dateStr?currentUser.color+"15":"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,padding:2}}>
+              <span style={{fontSize:12,fontWeight:600,color:"#1E293B"}} className="fb">{d}</span>
+              <div style={{display:"flex",gap:2}}>
+                {hasIncome && <span style={{width:5,height:5,borderRadius:"50%",background:"#22C55E"}}/>}
+                {hasExpense && <span style={{width:5,height:5,borderRadius:"50%",background:"#EF4444"}}/>}
+                <span style={{width:5,height:5,borderRadius:"50%",background:"#F59E0B"}}/>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedDate && (
+        <div style={S.overlay} onClick={e=>{if(e.target===e.currentTarget)setSelectedDate(null);}}>
+          <div style={S.mbox}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontWeight:700,fontSize:16,color:"#1E293B",textTransform:"capitalize"}} className="fb">{new Date(selectedDate+"T00:00:00").toLocaleDateString("es-ES",{day:"numeric",month:"long",year:"numeric"})}</span>
+              <button onClick={()=>setSelectedDate(null)} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:16,color:"#64748B"}}>✕</button>
+            </div>
+            {isAdmin && (
+              <>
+                <div style={{display:"flex",gap:10,marginBottom:16}}>
+                  <div style={{flex:1,background:"#F0FDF4",borderRadius:12,padding:10,textAlign:"center"}}>
+                    <div style={{fontSize:11,color:"#166534"}} className="fm">Ingresos</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#22C55E"}} className="fd">+{selIncome.toLocaleString("es-ES")} €</div>
+                  </div>
+                  <div style={{flex:1,background:"#FEF2F2",borderRadius:12,padding:10,textAlign:"center"}}>
+                    <div style={{fontSize:11,color:"#991B1B"}} className="fm">Gastos</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#EF4444"}} className="fd">-{selExpense.toLocaleString("es-ES")} €</div>
+                  </div>
+                </div>
+                {selTx.length>0 && (
+                  <div style={{marginBottom:16}}>
+                    {selTx.map(tx=>(
+                      <div key={tx.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F1F5F9"}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:13,color:"#1E293B"}} className="fb">{tx.category}</div>
+                          {tx.type==="expense" && tx.boteNombre && <div style={{fontSize:11,color:"#8B5CF6"}} className="fm">🪣 {tx.boteNombre}</div>}
+                        </div>
+                        <span style={{fontWeight:700,fontSize:13,color:tx.type==="income"?"#22C55E":"#EF4444"}} className="fb">{tx.type==="income"?"+":"-"}{tx.amount.toLocaleString("es-ES")} €</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {selMeals && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#64748B",marginBottom:8}} className="fm">🍽️ Menú del día ({selWeekday})</div>
+                {MEAL_TYPES.map(mt=>{ const meal=selMeals[mt.k]; const name=meal.status==="improvised"&&meal.improvisedName?meal.improvisedName:meal.name; return (
+                  <div key={mt.k} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0"}}>
+                    <span style={{fontSize:16}}>{meal.e}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,color:"#94A3B8"}} className="fm">{mt.l}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}} className="fb">{name}</div>
+                    </div>
+                  </div>
+                ); })}
+              </div>
+            )}
+            {isAdmin && (
+              <button onClick={()=>{ setModal({type:"addTx",data:{t:"expense",date:selectedDate}}); setSelectedDate(null); }} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">＋ Añadir movimiento</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATS SCREEN (pure SVG charts)
+// ══════════════════════════════════════════════════════════════════════════════
+function polarToCartesian(cx,cy,r,angleDeg) {
+  const a=(angleDeg-90)*Math.PI/180;
+  return { x:cx+r*Math.cos(a), y:cy+r*Math.sin(a) };
+}
+function arcPath(cx,cy,r,startAngle,endAngle) {
+  const start = polarToCartesian(cx,cy,r,startAngle);
+  const end   = polarToCartesian(cx,cy,r,endAngle);
+  const largeArc = endAngle-startAngle>180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
+}
+
+function GroupedBarChart({data,keys,colors,height=160}) {
+  const max = Math.max(1, ...data.flatMap(d=>keys.map(k=>Math.abs(d[k]||0))));
+  const barW=8, gap=2, groupW=keys.length*barW+(keys.length-1)*gap+18;
+  const chartW = Math.max(data.length*groupW, 280);
+  return (
+    <div style={{overflowX:"auto"}} className="sx">
+      <svg width={chartW} height={height+30} viewBox={`0 0 ${chartW} ${height+30}`}>
+        {[0.25,0.5,0.75,1].map(f=><line key={f} x1={0} x2={chartW} y1={height-height*f+8} y2={height-height*f+8} stroke="#F1F5F9" strokeWidth="1"/>)}
+        {data.map((d,i)=>{
+          const gx = i*groupW+9;
+          return (
+            <g key={i}>
+              {keys.map((k,j)=>{
+                const val=d[k]||0;
+                const h=(Math.abs(val)/max)*height;
+                const x=gx+j*(barW+gap);
+                const y=height-h+8;
+                return <rect key={k} x={x} y={y} width={barW} height={Math.max(h,1)} rx={2} fill={colors[j]}/>;
+              })}
+              <text x={gx+(keys.length*(barW+gap))/2-1} y={height+24} textAnchor="middle" fontSize="9" fill="#64748B" className="fm">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function LineChartMulti({data,keys,colors,height=140,width=300}) {
+  const max = Math.max(1, ...data.flatMap(d=>keys.map(k=>d[k]||0)));
+  const stepX = data.length>1 ? width/(data.length-1) : width;
+  const pts = keys.map(k=>data.map((d,i)=>({x:i*stepX, y:height-(d[k]/max)*height})));
+  return (
+    <svg width="100%" height={height+26} viewBox={`0 0 ${width} ${height+26}`} preserveAspectRatio="none">
+      {[0.25,0.5,0.75].map(f=><line key={f} x1={0} x2={width} y1={height*f} y2={height*f} stroke="#F1F5F9" strokeWidth="1"/>)}
+      {pts.map((p,ki)=>(
+        <polyline key={ki} points={p.map(pt=>`${pt.x},${pt.y}`).join(" ")} fill="none" stroke={colors[ki]} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+      ))}
+      {pts.map((p,ki)=>p.map((pt,i)=><circle key={ki+"-"+i} cx={pt.x} cy={pt.y} r={3} fill={colors[ki]}/>))}
+      {data.map((d,i)=><text key={i} x={i*stepX} y={height+18} textAnchor="middle" fontSize="9" fill="#64748B" className="fm">{d.label}</text>)}
+    </svg>
+  );
+}
+
+function PieChart({data,size=160}) {
+  const total = data.reduce((a,d)=>a+d.value,0);
+  const r=size/2;
+  if (total<=0) return <p style={{color:"#94A3B8",fontSize:13,textAlign:"center",padding:"16px 0"}} className="fm">Sin gastos este mes</p>;
+  let angle=0;
+  const slices = data.map(d=>{ const pct=d.value/total; const start=angle; const end=angle+pct*360; angle=end; return {...d,start,end,pct}; });
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0}}>
+        {slices.length===1
+          ? <circle cx={r} cy={r} r={r} fill={slices[0].color}/>
+          : slices.map((s,i)=><path key={i} d={arcPath(r,r,r,s.start,s.end)} fill={s.color}/>)}
+        <circle cx={r} cy={r} r={r*0.55} fill="#fff"/>
+      </svg>
+      <div style={{flex:1,minWidth:120}}>
+        {slices.map((s,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:12,color:"#1E293B",flex:1}} className="fm">{s.label}</span>
+            <span style={{fontSize:12,fontWeight:700,color:"#64748B"}} className="fb">{Math.round(s.pct*100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatsScreen({currentUser,isAdmin,transactions}) {
+  const today = new Date();
+  const [statMonth,setStatMonth] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`);
+
+  const last6 = useMemo(()=>{
+    const arr=[];
+    for(let i=5;i>=0;i--){
+      const d=new Date(today.getFullYear(), today.getMonth()-i, 1);
+      const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      const income=transactions.filter(t=>t.type==="income"&&t.date?.startsWith(key)).reduce((a,t)=>a+t.amount,0);
+      const expense=transactions.filter(t=>t.type==="expense"&&t.date?.startsWith(key)).reduce((a,t)=>a+t.amount,0);
+      arr.push({ key, label:MONTH_SHORT[d.getMonth()], income, expense, savings:income-expense });
+    }
+    return arr;
+  },[transactions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const yearMonths = useMemo(()=>{
+    const arr=[]; const y=today.getFullYear();
+    for(let m=0;m<=today.getMonth();m++){
+      const key=`${y}-${String(m+1).padStart(2,"0")}`;
+      const income=transactions.filter(t=>t.type==="income"&&t.date?.startsWith(key)).reduce((a,t)=>a+t.amount,0);
+      const expense=transactions.filter(t=>t.type==="expense"&&t.date?.startsWith(key)).reduce((a,t)=>a+t.amount,0);
+      arr.push({ key, label:MONTH_SHORT[m], income, expense });
+    }
+    return arr;
+  },[transactions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const monthOptions = useMemo(()=>{
+    const set=new Set(transactions.map(t=>t.date?.slice(0,7)).filter(Boolean));
+    set.add(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`);
+    return [...set].sort().reverse();
+  },[transactions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const catData = useMemo(()=>{
+    const m={};
+    transactions.filter(t=>t.type==="expense"&&t.date?.startsWith(statMonth)).forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; });
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([cat,val],i)=>({label:cat,value:val,color:BOTE_COLORS[i%BOTE_COLORS.length]}));
+  },[transactions,statMonth]);
+
+  const yearIncome = yearMonths.reduce((a,m)=>a+m.income,0);
+  const yearExpense = yearMonths.reduce((a,m)=>a+m.expense,0);
+  const yearSavings = yearIncome-yearExpense;
+  const yearSavingsPct = yearIncome>0 ? (yearSavings/yearIncome*100) : 0;
+
+  const cur=last6[5], prev=last6[4];
+  const diffIncome = cur.income-prev.income;
+  const diffExpense = cur.expense-prev.expense;
+
+  if (!isAdmin) return <div style={{textAlign:"center",padding:60}}><div style={{fontSize:48}}>🔒</div><p style={{color:"#64748B",marginTop:12}} className="fm">Solo los administradores pueden ver las estadísticas.</p></div>;
+
+  return (
+    <div>
+      <h2 style={S.title} className="fd">Estadísticas 📊</h2>
+      <div style={{...S.card,marginTop:12}}>
+        <span style={S.cardTitle} className="fb">Ingresos, gastos y ahorro (6 meses)</span>
+        <GroupedBarChart data={last6} keys={["income","expense","savings"]} colors={["#22C55E","#EF4444","#3B82F6"]}/>
+        <div style={{display:"flex",gap:14,marginTop:10,justifyContent:"center",flexWrap:"wrap"}}>
+          {[["Ingresos","#22C55E"],["Gastos","#EF4444"],["Ahorro","#3B82F6"]].map(([l,c])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:11,color:"#64748B"}} className="fm">{l}</span></div>
+          ))}
+        </div>
+      </div>
+      <div style={S.card}>
+        <span style={S.cardTitle} className="fb">Evolución {today.getFullYear()}</span>
+        <LineChartMulti data={yearMonths} keys={["income","expense"]} colors={["#22C55E","#EF4444"]}/>
+        <div style={{display:"flex",gap:14,marginTop:6,justifyContent:"center"}}>
+          {[["Ingresos","#22C55E"],["Gastos","#EF4444"]].map(([l,c])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:11,color:"#64748B"}} className="fm">{l}</span></div>
+          ))}
+        </div>
+      </div>
+      <div style={S.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <span style={{fontWeight:700,fontSize:15,color:"#1E293B"}} className="fb">Gastos por categoría</span>
+          <select value={statMonth} onChange={e=>setStatMonth(e.target.value)} style={{fontSize:12,padding:"4px 8px",borderRadius:8,border:"1.5px solid #E2E8F0",color:"#1E293B"}} className="fb">
+            {monthOptions.map(k=>{ const [y,m]=k.split("-"); return <option key={k} value={k}>{MONTH_SHORT[+m-1]} {y}</option>; })}
+          </select>
+        </div>
+        <PieChart data={catData}/>
+      </div>
+      <div style={S.card}>
+        <span style={S.cardTitle} className="fb">Totales anuales {today.getFullYear()}</span>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Ingresos totales</div><div style={{fontSize:16,fontWeight:800,color:"#22C55E"}} className="fd">+{yearIncome.toLocaleString("es-ES")} €</div></div>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Gastos totales</div><div style={{fontSize:16,fontWeight:800,color:"#EF4444"}} className="fd">-{yearExpense.toLocaleString("es-ES")} €</div></div>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Ahorro total</div><div style={{fontSize:16,fontWeight:800,color:"#3B82F6"}} className="fd">{yearSavings>=0?"+":""}{yearSavings.toLocaleString("es-ES")} €</div></div>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">% de ahorro</div><div style={{fontSize:16,fontWeight:800,color:"#8B5CF6"}} className="fd">{yearSavingsPct.toFixed(1)}%</div></div>
+        </div>
+      </div>
+      <div style={S.card}>
+        <span style={S.cardTitle} className="fb">Este mes vs. anterior</span>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:13,color:"#64748B"}} className="fm">Ingresos</span>
+            <span style={{fontSize:14,fontWeight:700,color:diffIncome>=0?"#22C55E":"#EF4444"}} className="fb">{cur.income.toLocaleString("es-ES")} € ({diffIncome>=0?"+":""}{diffIncome.toLocaleString("es-ES")} €)</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:13,color:"#64748B"}} className="fm">Gastos</span>
+            <span style={{fontSize:14,fontWeight:700,color:diffExpense<=0?"#22C55E":"#EF4444"}} className="fb">{cur.expense.toLocaleString("es-ES")} € ({diffExpense>=0?"+":""}{diffExpense.toLocaleString("es-ES")} €)</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
