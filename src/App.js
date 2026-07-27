@@ -163,10 +163,79 @@ const MENU_STYLES = `
 .fu{animation:fu .3s ease-out both}
 @keyframes sh{0%{background-position:-400px 0}100%{background-position:400px 0}}
 .sh{background:linear-gradient(90deg,#f0f0f0,#f8f8f8,#f0f0f0);background-size:800px 100%;animation:sh 1.4s linear infinite}
+@keyframes toastIn{0%{opacity:0;transform:translate(-50%,-16px) scale(.9)}60%{opacity:1;transform:translate(-50%,2px) scale(1.03)}100%{opacity:1;transform:translate(-50%,0) scale(1)}}
+.toastAnim{animation:toastIn .35s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes pulseRing{0%{box-shadow:0 0 0 0 rgba(124,58,237,.55)}70%{box-shadow:0 0 0 10px rgba(124,58,237,0)}100%{box-shadow:0 0 0 0 rgba(124,58,237,0)}}
+.coachPulse{animation:pulseRing 1.8s ease-out infinite}
+@keyframes popIn{0%{opacity:0;transform:scale(.85)}100%{opacity:1;transform:scale(1)}}
+.popIn{animation:popIn .25s ease-out both}
 .sx::-webkit-scrollbar{display:none}.sx{scrollbar-width:none}
 input[type=range].ps{appearance:none;-webkit-appearance:none;width:100%;height:8px;border-radius:99px;outline:none;cursor:pointer;background:linear-gradient(to right,#FF5C4D,#E91E63,#8B5CF6)}
 input[type=range].ps::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid #FF5C4D;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)}
 `;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SHARED UI HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+function ConfirmModal({title,message,confirmLabel="Eliminar",confirmColor="#EF4444",onConfirm,onCancel}) {
+  return (
+    <div style={{...S.overlay,alignItems:"center",zIndex:2000}} onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div className="popIn" style={{background:"#fff",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:340,textAlign:"center",boxShadow:"0 12px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
+        <div style={{fontWeight:700,fontSize:16,color:"#1E293B",marginBottom:6}} className="fb">{title}</div>
+        {message && <p style={{fontSize:13,color:"#64748B",marginBottom:20,lineHeight:1.4}} className="fm">{message}</p>}
+        <div style={{display:"flex",gap:10,marginTop:message?0:16}}>
+          <button onClick={onCancel} style={{...S.saveBtn,background:"#F1F5F9",color:"#64748B",flex:1}} className="fm">Cancelar</button>
+          <button onClick={onConfirm} style={{...S.saveBtn,background:confirmColor,flex:1}} className="fm">{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Onboarding content ──────────────────────────────────────────────────────
+const ONBOARD_KEY = "oyl_onboarded_v1";
+const COACH_KEY = "oyl_coach_seen_v1";
+const ONBOARD_SLIDES = [
+  { emoji:"🏡", title:"¡Bienvenido a OrdenYourLife!", text:"Tu app para organizar el dinero, las tareas y las comidas de la familia, todo en un mismo sitio." },
+  { emoji:"🏠", title:"Sección Familia", text:"Aquí llevas el dinero (Inicio, Finanzas y Botes), el Calendario, las Estadísticas y las Tareas de casa." },
+  { emoji:"🍽️", title:"Sección Menú", text:"Aquí planificas el menú semanal, controlas la despensa y generas la lista de la compra automáticamente." },
+  { emoji:"✨", title:"Así de fácil funciona el dinero", text:"3 pasos:", steps:["Añade tu sueldo","Se reparte solo en tus botes 💰","Controla lo que gastas"] },
+];
+function WelcomeOverlay({onFinish}) {
+  const [step,setStep]=useState(0);
+  const s=ONBOARD_SLIDES[step];
+  const last = step===ONBOARD_SLIDES.length-1;
+  return (
+    <div style={{position:"fixed",inset:0,background:"linear-gradient(160deg,#EEF2FF,#F0FDF4)",zIndex:5000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div className="popIn" style={{background:"#fff",borderRadius:24,padding:"36px 28px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 8px 40px rgba(0,0,0,0.12)"}}>
+        <div style={{fontSize:56,marginBottom:14}}>{s.emoji}</div>
+        <h2 style={{fontSize:21,fontWeight:800,color:"#1E293B",marginBottom:10}} className="fd">{s.title}</h2>
+        <p style={{color:"#64748B",fontSize:14,lineHeight:1.5,marginBottom:s.steps?14:22}} className="fm">{s.text}</p>
+        {s.steps && (
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24,textAlign:"left"}}>
+            {s.steps.map((st,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"#F8FAFC",borderRadius:12,padding:"10px 12px"}}>
+                <span style={{width:24,height:24,borderRadius:"50%",background:"#7C3AED",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}} className="fb">{i+1}</span>
+                <span style={{fontSize:13,fontWeight:600,color:"#1E293B"}} className="fb">{st}</span>
+                {i<s.steps.length-1 && <span style={{marginLeft:"auto",color:"#CBD5E1"}}>↓</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:20}}>
+          {ONBOARD_SLIDES.map((_,i)=><span key={i} style={{width:i===step?18:6,height:6,borderRadius:99,background:i===step?"#7C3AED":"#E2E8F0",transition:"all .2s"}}/>)}
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          {step>0 && <button onClick={()=>setStep(s=>s-1)} style={{...S.saveBtn,background:"#F1F5F9",color:"#64748B",flex:1}} className="fm">Atrás</button>}
+          {!last && <button onClick={()=>setStep(s=>s+1)} style={{...S.saveBtn,background:"#7C3AED",flex:2}} className="fm">Siguiente</button>}
+          {last && <button onClick={()=>{ localStorage.setItem(ONBOARD_KEY,"1"); onFinish(); }} style={{...S.saveBtn,background:"#22C55E",flex:2}} className="fm">¡Empezar! 🚀</button>}
+        </div>
+        {!last && <button onClick={()=>{ localStorage.setItem(ONBOARD_KEY,"1"); onFinish(); }} style={{background:"transparent",border:"none",color:"#94A3B8",fontSize:12,marginTop:14,cursor:"pointer"}} className="fm">Saltar</button>}
+      </div>
+    </div>
+  );
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
@@ -200,6 +269,13 @@ export default function App() {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [modal, setModal]         = useState(null);
   const [toast, setToast]         = useState(null);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showCoach, setShowCoach]     = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  useEffect(()=>{ if (currentUser && !localStorage.getItem(ONBOARD_KEY)) setShowWelcome(true); },[currentUser]);
+  useEffect(()=>{ if (currentUser && !showWelcome && !localStorage.getItem(COACH_KEY)) setShowCoach(true); },[currentUser, showWelcome]);
+  function dismissCoach(){ localStorage.setItem(COACH_KEY,"1"); setShowCoach(false); }
 
   // ── Firebase init ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -279,7 +355,6 @@ export default function App() {
   },[menuData]);
   const setPeople = useCallback(async p => { await updateDoc(doc(db,"menuData","current"), { people:p, updatedAt:Date.now() }); },[]);
   const resetMenu = useCallback(async () => {
-    if (!window.confirm("¿Reiniciar la semana?")) return;
     await setDoc(doc(db,"menuData","current"), { menu:JSON.parse(JSON.stringify(DEFAULT_MENU)), people:2, updatedAt:Date.now() });
     const batch = writeBatch(db);
     menuData.pantryMenu.forEach(p=>batch.delete(doc(db,"pantryMenu",p.id)));
@@ -351,7 +426,7 @@ export default function App() {
   return (
     <div style={S.root}>
       <style>{MENU_STYLES}</style>
-      {toast && <div style={{...S.toast,background:toast.color}} className="fm">{toast.msg}</div>}
+      {toast && <div style={{...S.toast,background:toast.color}} className="fm toastAnim">{toast.msg}</div>}
       {modal && <FamilyModal modal={modal} setModal={setModal} users={users} budgets={budgets} botes={botes} currentUser={currentUser} showToast={showToast}/>}
       {openMeal && (
         <MealModal day={DAYS[dayIdx]} mt={MEAL_TYPES.find(m=>m.k===openMeal.k)} meal={menuData.menu[DAYS[dayIdx]][openMeal.k]}
@@ -367,6 +442,13 @@ export default function App() {
           onClose={()=>setSwapMeal(null)}/>
       )}
       {receiptOpen && <ReceiptModal pantry={menuData.pantryMenu} onConfirm={addReceiptMenu} onClose={()=>setReceiptOpen(false)}/>}
+      {showWelcome && <WelcomeOverlay onFinish={()=>setShowWelcome(false)}/>}
+      {confirmReset && (
+        <ConfirmModal title="¿Reiniciar la semana?" message="Se recuperará el menú por defecto y la despensa volverá a sus cantidades iniciales. Esta acción no se puede deshacer."
+          confirmLabel="Sí, reiniciar" confirmColor="#EF4444"
+          onCancel={()=>setConfirmReset(false)}
+          onConfirm={()=>{ resetMenu(); setConfirmReset(false); }}/>
+      )}
 
       {/* Header */}
       <header style={{...S.header,background:currentUser.color}}>
@@ -394,7 +476,7 @@ export default function App() {
       {appSection==="family" && (
         <div style={S.appWrap}>
           <main style={S.main}>
-            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast}/>}
+            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast} showCoach={showCoach&&isAdmin} dismissCoach={dismissCoach}/>}
             {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} transactions={transactions} setModal={setModal} showToast={showToast}/>}
             {familyScreen==="calendar" && <CalendarScreen currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} menu={menuData.menu} setModal={setModal}/>}
@@ -404,8 +486,8 @@ export default function App() {
           </main>
           <nav style={S.nav}>
             {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["calendar","📅","Calendario"],["stats","📊","Stats"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
-              <button key={k} onClick={()=>setFamilyScreen(k)} style={{...S.navBtn,...(familyScreen===k?{color:currentUser.color,borderTop:`2px solid ${currentUser.color}`}:{})}}>
-                <span style={{fontSize:20}}>{ic}</span><span style={{fontSize:10,fontWeight:600}}>{lb}</span>
+              <button key={k} onClick={()=>setFamilyScreen(k)} style={{...S.navBtn,...(familyScreen===k?{color:currentUser.color,borderTop:`2px solid ${currentUser.color}`,background:currentUser.color+"10"}:{})}}>
+                <span style={{fontSize:22}}>{ic}</span><span style={{fontSize:10,fontWeight:700}} className="fm">{lb}</span>
               </button>
             ))}
           </nav>
@@ -453,7 +535,7 @@ export default function App() {
                 <div className="flex items-baseline gap-2 mb-3">
                   <span className="w-2 h-2 rounded-full" style={{background:DAY_COLOR[dayIdx]}}/>
                   <h2 className="fd text-3xl" style={{color:DAY_COLOR[dayIdx]}}>{DAYS[dayIdx]}</h2>
-                  <button onClick={resetMenu} className="ml-auto fm text-[9px] uppercase text-gray-400 flex items-center gap-1"><RefreshCw className="w-2.5 h-2.5"/>Reiniciar</button>
+                  <button onClick={()=>setConfirmReset(true)} className="ml-auto fm text-[9px] uppercase text-gray-400 flex items-center gap-1"><RefreshCw className="w-2.5 h-2.5"/>Reiniciar</button>
                 </div>
                 <div className="space-y-3">
                   {MEAL_TYPES.map(mt=>(
@@ -482,35 +564,69 @@ export default function App() {
 // ══════════════════════════════════════════════════════════════════════════════
 // FAMILY SCREENS
 // ══════════════════════════════════════════════════════════════════════════════
-function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,myTasks,transactions,setScreen,setModal,getUser}) {
+function smartSummary({balance,available,totalExpense,transactions}) {
+  const msgs = [];
+  if (available>0) {
+    const usedPct = (totalExpense/available)*100;
+    if (usedPct>=80) msgs.push({ icon:"⚠️", color:"#F59E0B", bg:"#FFFBEB", border:"#FDE68A", text:`Ya has gastado el ${Math.min(usedPct,999).toFixed(0)}% de tu dinero disponible. ¡Vigila los próximos gastos!` });
+  }
+  if (balance>=0) msgs.push({ icon:"🎉", color:"#166534", bg:"#F0FDF4", border:"#BBF7D0", text:`¡Vas bien! Te quedan ${balance.toLocaleString("es-ES")} € disponibles.` });
+  else msgs.push({ icon:"🔴", color:"#991B1B", bg:"#FEF2F2", border:"#FECACA", text:`Este mes se ha gastado más de lo disponible. Te faltarían ${Math.abs(balance).toLocaleString("es-ES")} €.` });
+  if (transactions.length===0) {
+    msgs.push({ icon:"📝", color:"#3730A3", bg:"#EEF2FF", border:"#C7D2FE", text:"Aún no has registrado ningún movimiento. ¡Empieza añadiendo tu sueldo!" });
+  } else {
+    const last = [...transactions].sort((a,b)=>b.date>a.date?1:-1)[0];
+    const days = Math.floor((Date.now()-new Date(last.date+"T00:00:00").getTime())/86400000);
+    if (days>=7) msgs.push({ icon:"📝", color:"#3730A3", bg:"#EEF2FF", border:"#C7D2FE", text:`Llevas ${days} días sin registrar ningún movimiento. ¿Se te olvidó anotar algo?` });
+  }
+  return msgs;
+}
+
+function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,myTasks,transactions,setScreen,setModal,getUser,showCoach,dismissCoach}) {
   const pending=myTasks.filter(t=>!t.done); const done=myTasks.filter(t=>t.done);
+  const summary = isAdmin ? smartSummary({balance,available,totalExpense,transactions}) : [];
   return (
     <div>
       <h2 style={S.title} className="fd">Hola, {currentUser.name} {currentUser.emoji}</h2>
       <p style={{color:"#64748B",marginBottom:20,fontSize:14}} className="fm">Resumen familiar</p>
       {isAdmin && (
         <div style={{...S.card,background:`linear-gradient(135deg,${currentUser.color},#1E293B)`,color:"#fff",marginBottom:16}}>
-          <div style={{fontSize:12,opacity:0.8}} className="fm">Balance familiar</div>
+          <div style={{fontSize:12,opacity:0.8}} className="fm">Lo que te queda</div>
           <div style={{fontSize:32,fontWeight:800,margin:"6px 0"}} className="fd">{balance>=0?"+":""}{balance.toLocaleString("es-ES")} €</div>
           <div style={{display:"flex",gap:20}}>
             <div><div style={{fontSize:11,opacity:0.7}} className="fm">Ingresos totales</div><div style={{fontWeight:700}} className="fb">+{totalIncome.toLocaleString("es-ES")} €</div></div>
-            <div><div style={{fontSize:11,opacity:0.7}} className="fm">En botes</div><div style={{fontWeight:700}} className="fb">{totalBotes.toLocaleString("es-ES")} €</div></div>
+            <div><div style={{fontSize:11,opacity:0.7}} className="fm">En sobres 💰</div><div style={{fontWeight:700}} className="fb">{totalBotes.toLocaleString("es-ES")} €</div></div>
             <div><div style={{fontSize:11,opacity:0.7}} className="fm">Disponible</div><div style={{fontWeight:700}} className="fb">{available.toLocaleString("es-ES")} €</div></div>
           </div>
         </div>
       )}
-      <div style={{display:"flex",gap:10,marginBottom:16}}>
+      {summary.map((m,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,background:m.bg,border:`1.5px solid ${m.border}`,borderRadius:14,padding:"12px 14px",marginBottom:10}}>
+          <span style={{fontSize:18,flexShrink:0}}>{m.icon}</span>
+          <span style={{fontSize:13,color:m.color,fontWeight:600,lineHeight:1.4}} className="fm">{m.text}</span>
+        </div>
+      ))}
+      <div style={{display:"flex",gap:10,marginBottom:16,marginTop:6}}>
         {isAdmin && <>
-          <button style={{...S.qBtn,borderColor:currentUser.color}} onClick={()=>setModal({type:"addTx",data:{t:"income"}})}><span>📈</span><span className="fm">Ingreso</span></button>
-          <button style={{...S.qBtn,borderColor:currentUser.color}} onClick={()=>setModal({type:"addTx",data:{t:"expense"}})}><span>📉</span><span className="fm">Gasto</span></button>
+          <div style={{flex:1,position:"relative"}}>
+            {showCoach && (
+              <div className="popIn" style={{position:"absolute",bottom:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",background:"#1E293B",color:"#fff",borderRadius:12,padding:"10px 12px",width:180,textAlign:"center",zIndex:200,boxShadow:"0 6px 20px rgba(0,0,0,0.25)"}}>
+                <div style={{fontSize:12,fontWeight:600,marginBottom:8}} className="fm">👋 ¡Empieza aquí! Añade tu primer sueldo.</div>
+                <button onClick={dismissCoach} style={{background:"#7C3AED",border:"none",color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}} className="fm">Entendido</button>
+                <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"7px solid transparent",borderRight:"7px solid transparent",borderTop:"7px solid #1E293B"}}/>
+              </div>
+            )}
+            <button className={showCoach?"coachPulse":""} style={{...S.qBtn,width:"100%",borderColor:"#22C55E",background:"#F0FDF4"}} onClick={()=>{ setModal({type:"addTx",data:{t:"income"}}); if(showCoach) dismissCoach(); }}><span style={{fontSize:22}}>📈</span><span className="fm" style={{color:"#166534",fontWeight:700}}>Ingreso</span></button>
+          </div>
+          <button style={{...S.qBtn,borderColor:"#EF4444",background:"#FEF2F2"}} onClick={()=>setModal({type:"addTx",data:{t:"expense"}})}><span style={{fontSize:22}}>📉</span><span className="fm" style={{color:"#991B1B",fontWeight:700}}>Gasto</span></button>
         </>}
-        <button style={{...S.qBtn,borderColor:currentUser.color}} onClick={()=>setModal({type:"addTask"})}><span>✅</span><span className="fm">Tarea</span></button>
+        <button style={{...S.qBtn,borderColor:currentUser.color}} onClick={()=>setModal({type:"addTask"})}><span style={{fontSize:22}}>✅</span><span className="fm">Tarea</span></button>
       </div>
       <div style={S.card}>
         <div style={S.cardHead}><span style={S.cardTitle} className="fb">Mis tareas</span>
           <button style={{...S.link,color:currentUser.color}} onClick={()=>setScreen("tasks")} className="fm">Ver todas →</button>
         </div>
-        {pending.length===0 && <p style={S.empty} className="fm">🎉 ¡Sin tareas pendientes!</p>}
+        {pending.length===0 && <p style={S.empty} className="fm">🎉 ¡Sin tareas pendientes! Todo bajo control.</p>}
         {pending.slice(0,3).map(t=><TaskRow key={t.id} task={t} currentUser={currentUser} getUser={getUser} isAdmin={isAdmin} compact/>)}
         {done.length>0 && <div style={{fontSize:12,color:"#94A3B8",marginTop:8}} className="fm">✔️ {done.length} completada{done.length>1?"s":""}</div>}
       </div>
@@ -519,6 +635,7 @@ function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalB
           <div style={S.cardHead}><span style={S.cardTitle} className="fb">Últimos movimientos</span>
             <button style={{...S.link,color:currentUser.color}} onClick={()=>setScreen("finance")} className="fm">Ver todos →</button>
           </div>
+          {transactions.length===0 && <p style={S.empty} className="fm">Aún no hay movimientos. Toca "＋ Ingreso" arriba para añadir tu sueldo y empezar.</p>}
           {[...transactions].sort((a,b)=>b.date>a.date?1:-1).slice(0,3).map(tx=>(
             <div key={tx.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F1F5F9"}}>
               <div><div style={{fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">{tx.category}</div><div style={{fontSize:11,color:"#94A3B8"}} className="fm">{getUser(tx.userId)?.emoji} {tx.date}</div></div>
@@ -533,24 +650,30 @@ function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalB
 
 function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,transactions,budgets,expByCat,setModal,showToast,getUser}) {
   const [tab,setTab]=useState("mov");
+  const [confirmDel,setConfirmDel]=useState(null);
   if (!isAdmin) return <div style={{textAlign:"center",padding:60}}><div style={{fontSize:48}}>🔒</div><p style={{color:"#64748B",marginTop:12}} className="fm">Solo los administradores pueden ver las finanzas.</p></div>;
-  async function delTx(id){ await deleteDoc(doc(db,"transactions",id)); showToast("Eliminado","#EF4444"); }
+  async function delTx(id){ await deleteDoc(doc(db,"transactions",id)); showToast("Movimiento eliminado","#EF4444"); }
   return (
     <div>
+      {confirmDel && (
+        <ConfirmModal title="¿Eliminar este movimiento?" message={`"${confirmDel.category}" · ${confirmDel.amount.toLocaleString("es-ES")} € — esta acción no se puede deshacer.`}
+          onCancel={()=>setConfirmDel(null)} onConfirm={()=>{ delTx(confirmDel.id); setConfirmDel(null); }}/>
+      )}
       <div style={S.scrHead}>
         <h2 style={S.title} className="fd">Finanzas 💰</h2>
-        <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addTx"})}>＋</button>
+        <button style={{...S.addBtnBig,background:"#22C55E"}} onClick={()=>setModal({type:"addTx"})}><Plus className="w-4 h-4"/><span className="fm">Añadir</span></button>
       </div>
-      <div style={{display:"flex",gap:10,marginBottom:10}}>
-        {[["Ingresos","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["Gastos","#EF4444",`-${totalExpense.toLocaleString("es-ES")} €`],["Balance",currentUser.color,`${balance>=0?"+":""}${balance.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
+      <div style={{display:"flex",gap:10,marginBottom:4}}>
+        {[["Ingresos","Lo que entra","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["Gastos","Lo que sale","#EF4444",`-${totalExpense.toLocaleString("es-ES")} €`],["Balance","Lo que te queda",currentUser.color,`${balance>=0?"+":""}${balance.toLocaleString("es-ES")} €`]].map(([l,cap,c,v])=>(
           <div key={l} style={{flex:1,background:"#fff",borderRadius:14,padding:12,borderLeft:`3px solid ${c}`,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
             <div style={{fontSize:11,color:"#64748B"}} className="fm">{l}</div>
             <div style={{fontSize:16,fontWeight:800,color:c}} className="fd">{v}</div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:2}} className="fm">{cap}</div>
           </div>
         ))}
       </div>
-      <div style={{display:"flex",gap:10,marginBottom:16}}>
-        {[["Ingresos totales","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["En botes","#8B5CF6",`${totalBotes.toLocaleString("es-ES")} €`],["Disponible","#0EA5E9",`${available.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
+      <div style={{display:"flex",gap:10,marginBottom:16,marginTop:10}}>
+        {[["Ingresos totales","#22C55E",`+${totalIncome.toLocaleString("es-ES")} €`],["En sobres 💰","#8B5CF6",`${totalBotes.toLocaleString("es-ES")} €`],["Disponible","#0EA5E9",`${available.toLocaleString("es-ES")} €`]].map(([l,c,v])=>(
           <div key={l} style={{flex:1,background:"#F8FAFC",borderRadius:14,padding:12,border:`1.5px solid ${c}30`}}>
             <div style={{fontSize:10,color:"#64748B"}} className="fm">{l}</div>
             <div style={{fontSize:14,fontWeight:800,color:c}} className="fd">{v}</div>
@@ -564,19 +687,26 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tot
       </div>
       {tab==="mov" && (
         <div>
-          {transactions.length===0 && <p style={S.empty} className="fm">Sin movimientos aún.</p>}
+          {transactions.length===0 && (
+            <div style={{textAlign:"center",padding:"32px 16px",background:"#F8FAFC",borderRadius:16}}>
+              <div style={{fontSize:40,marginBottom:10}}>💸</div>
+              <p style={{color:"#1E293B",fontWeight:700,marginBottom:4}} className="fb">Aún no hay movimientos</p>
+              <p style={{color:"#64748B",fontSize:13,marginBottom:16}} className="fm">Registra tu primer ingreso o gasto para empezar a ver tu dinero claro.</p>
+              <button style={{...S.saveBtn,background:"#22C55E",padding:"10px 24px"}} onClick={()=>setModal({type:"addTx"})} className="fm">＋ Añadir movimiento</button>
+            </div>
+          )}
           {[...transactions].sort((a,b)=>b.date>a.date?1:-1).map(tx=>(
             <div key={tx.id} style={{...S.card,borderLeft:`4px solid ${tx.type==="income"?"#22C55E":"#EF4444"}`,padding:"12px 14px",marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
                   <div style={{fontWeight:600,color:"#1E293B"}} className="fb">{tx.category}</div>
                   {tx.note && <div style={{fontSize:12,color:"#64748B"}} className="fm">{tx.note}</div>}
-                  {tx.type==="expense" && tx.boteNombre && <div style={{fontSize:11,color:"#8B5CF6",fontWeight:600}} className="fm">🪣 {tx.boteNombre}</div>}
+                  {tx.type==="expense" && tx.boteNombre && <div style={{fontSize:11,color:"#8B5CF6",fontWeight:600}} className="fm">💰 {tx.boteNombre}</div>}
                   <div style={{fontSize:11,color:"#94A3B8",marginTop:2}} className="fm">{tx.date} · {getUser(tx.userId)?.emoji} {getUser(tx.userId)?.name}</div>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontWeight:800,color:tx.type==="income"?"#22C55E":"#EF4444",fontSize:16}} className="fd">{tx.type==="income"?"+":"-"}{tx.amount.toLocaleString("es-ES")} €</span>
-                  <button onClick={()=>delTx(tx.id)} style={S.iconBtn}>🗑️</button>
+                  <button onClick={()=>setConfirmDel(tx)} style={S.iconBtn}>🗑️</button>
                 </div>
               </div>
             </div>
@@ -586,7 +716,7 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tot
       {tab==="bud" && (
         <div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <p style={{color:"#64748B",fontSize:13}} className="fm">Gasto por categoría</p>
+            <p style={{color:"#64748B",fontSize:13}} className="fm">Cuánto quieres gastar como máximo en cada categoría</p>
             <button style={{...S.addBtn,background:currentUser.color,fontSize:12,padding:"4px 10px"}} onClick={()=>setModal({type:"editBudget",data:budgets})} className="fm">✏️ Editar</button>
           </div>
           {Object.entries(budgets).map(([cat,budget])=>{
@@ -598,6 +728,7 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tot
                   <span style={{fontSize:13,color:over?"#EF4444":"#64748B"}} className="fm">{spent.toLocaleString("es-ES")} / {budget.toLocaleString("es-ES")} €{over?" ⚠️":""}</span>
                 </div>
                 <div style={{height:8,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,borderRadius:99,background:over?"#EF4444":pct>80?"#F59E0B":"#22C55E",transition:"width 0.5s"}}/></div>
+                {over && <div style={{fontSize:11,color:"#EF4444",marginTop:6,fontWeight:600}} className="fm">Te has pasado {(spent-budget).toLocaleString("es-ES")} € en {cat}.</div>}
               </div>
             );
           })}
@@ -610,18 +741,24 @@ function FinanceScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,tot
 function TasksScreen({currentUser,isAdmin,myTasks,setModal,showToast,getUser}) {
   const [filter,setFilter]=useState("all");
   const filtered=myTasks.filter(t=>filter==="all"?true:filter==="pending"?!t.done:t.done);
+  const EMPTY_MSG = { all:"No hay tareas todavía. Crea la primera para organizar la casa.", pending:"🎉 ¡No hay tareas pendientes! Todo al día.", done:"Todavía no has completado ninguna tarea." };
   return (
     <div>
       <div style={S.scrHead}>
         <h2 style={S.title} className="fd">Tareas ✅</h2>
-        {isAdmin && <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addTask"})}>＋</button>}
+        {isAdmin && <button style={{...S.addBtnBig,background:currentUser.color}} onClick={()=>setModal({type:"addTask"})}><Plus className="w-4 h-4"/><span className="fm">Añadir</span></button>}
       </div>
       <div style={S.tabs}>
         {[["all","Todas"],["pending","Pendientes"],["done","Hechas"]].map(([k,l])=>(
           <button key={k} onClick={()=>setFilter(k)} style={{...S.tabBtn,...(filter===k?{borderBottomColor:currentUser.color,color:currentUser.color}:{})}} className="fm">{l}</button>
         ))}
       </div>
-      {filtered.length===0 && <p style={S.empty} className="fm">No hay tareas aquí.</p>}
+      {filtered.length===0 && (
+        <div style={{textAlign:"center",padding:"32px 16px",background:"#F8FAFC",borderRadius:16}}>
+          <div style={{fontSize:36,marginBottom:8}}>{filter==="pending"?"🎉":"📋"}</div>
+          <p style={{color:"#64748B",fontSize:13}} className="fm">{EMPTY_MSG[filter]}</p>
+        </div>
+      )}
       {filtered.map(t=><TaskRow key={t.id} task={t} currentUser={currentUser} getUser={getUser} isAdmin={isAdmin} showToast={showToast}/>)}
     </div>
   );
@@ -630,13 +767,18 @@ function TasksScreen({currentUser,isAdmin,myTasks,setModal,showToast,getUser}) {
 function TaskRow({task,currentUser,getUser,isAdmin,compact,showToast}) {
   const assignee=getUser(task.assignedTo);
   const overdue=!task.done&&task.dueDate<new Date().toISOString().slice(0,10);
+  const [confirmDel,setConfirmDel]=useState(false);
   async function toggle(){ await updateDoc(doc(db,"tasks",task.id),{done:!task.done}); if(showToast) showToast(task.done?"Tarea reabierta":"¡Completada! 🎉"); }
-  async function del(){ await deleteDoc(doc(db,"tasks",task.id)); if(showToast) showToast("Eliminada","#EF4444"); }
+  async function del(){ await deleteDoc(doc(db,"tasks",task.id)); if(showToast) showToast("Tarea eliminada","#EF4444"); }
   return (
     <div style={{...S.card,borderLeft:`4px solid ${PCOLOR[task.priority]}`,opacity:task.done?0.6:1,marginBottom:10,padding:"12px 14px"}}>
+      {confirmDel && (
+        <ConfirmModal title="¿Eliminar esta tarea?" message={`"${task.title}" se eliminará para siempre.`}
+          onCancel={()=>setConfirmDel(false)} onConfirm={()=>{ del(); setConfirmDel(false); }}/>
+      )}
       <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-        <button onClick={toggle} style={{width:22,height:22,borderRadius:6,border:`2px solid ${currentUser.color}`,background:task.done?currentUser.color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,marginTop:2}}>
-          {task.done && <span style={{color:"#fff",fontSize:12}}>✔</span>}
+        <button onClick={toggle} style={{width:26,height:26,borderRadius:8,border:`2px solid ${task.done?"#22C55E":currentUser.color}`,background:task.done?"#22C55E":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,marginTop:2}}>
+          {task.done && <span style={{color:"#fff",fontSize:14}}>✔</span>}
         </button>
         <div style={{flex:1}}>
           <div style={{fontWeight:600,color:"#1E293B",textDecoration:task.done?"line-through":"none"}} className="fb">{task.title}</div>
@@ -648,7 +790,36 @@ function TaskRow({task,currentUser,getUser,isAdmin,compact,showToast}) {
           </div>}
           {compact && assignee && <div style={{fontSize:11,color:"#64748B"}} className="fm">{assignee.emoji} {assignee.name} · {task.dueDate}</div>}
         </div>
-        {isAdmin && !compact && <button onClick={del} style={S.iconBtn}>🗑️</button>}
+        {isAdmin && !compact && <button onClick={()=>setConfirmDel(true)} style={S.iconBtn}>🗑️</button>}
+      </div>
+    </div>
+  );
+}
+
+const FAQ_ITEMS = [
+  { q:"¿Cómo añado mi sueldo?", a:'Ve a "Inicio" o "Finanzas" y toca el botón verde "＋ Ingreso". Elige la categoría "Sueldo", escribe la cantidad y guarda. El dinero se repartirá automáticamente entre tus sobres (botes) según el % que hayas definido.' },
+  { q:"¿Qué son los botes?", a:'Los botes son como "sobres de dinero" 💰: cada vez que registras un ingreso, se reparte solo entre ellos (por ejemplo 20% a Ahorro, 50% a Gastos fijos...). Así siempre sabes cuánto tienes disponible para cada cosa.' },
+  { q:"¿Cómo funciona el menú semanal?", a:'En la pestaña "🍽️ Menú" tienes 3 comidas planificadas para cada día. Toca un plato para marcarlo como "hecho", decir que improvisaste otra cosa, o cambiarlo por otro con el botón "Cambiar plato".' },
+  { q:"¿Cómo cambio mi PIN?", a:'Ve a "Ajustes", toca el lápiz ✏️ junto a tu nombre en "Perfiles de familia", escribe el nuevo PIN de 4 dígitos y pulsa "Guardar".' },
+];
+function HelpModal({onClose}) {
+  const [open,setOpen]=useState(0);
+  return (
+    <div style={S.overlay} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={S.mbox}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <span style={{fontWeight:700,fontSize:17,color:"#1E293B"}} className="fb">Ayuda y preguntas frecuentes ❓</span>
+          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:"50%",width:32,height:32,cursor:"pointer",fontSize:16,color:"#64748B"}}>✕</button>
+        </div>
+        {FAQ_ITEMS.map((f,i)=>(
+          <div key={i} style={{border:"1.5px solid #F1F5F9",borderRadius:14,marginBottom:10,overflow:"hidden"}}>
+            <button onClick={()=>setOpen(open===i?-1:i)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:open===i?"#F8FAFC":"#fff",border:"none",cursor:"pointer",textAlign:"left"}}>
+              <span style={{fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">{f.q}</span>
+              <span style={{color:"#94A3B8",fontSize:14,transform:open===i?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+            </button>
+            {open===i && <p style={{padding:"0 16px 14px",fontSize:13,color:"#64748B",lineHeight:1.5}} className="fm">{f.a}</p>}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -656,6 +827,7 @@ function TaskRow({task,currentUser,getUser,isAdmin,compact,showToast}) {
 
 function SettingsScreen({currentUser,isAdmin,users,showToast,setCurrentUser}) {
   const [editUser,setEditUser]=useState(null); const [form,setForm]=useState({});
+  const [showHelp,setShowHelp]=useState(false);
   const EMOJIS=["👩","👨","🧒","👧","👦","🧑","👴","👵","🧔","👱"];
   async function save(){
     if(!form.name||form.pin.length!==4){showToast("Nombre y PIN de 4 dígitos requeridos","#EF4444");return;}
@@ -666,6 +838,15 @@ function SettingsScreen({currentUser,isAdmin,users,showToast,setCurrentUser}) {
   return (
     <div>
       <h2 style={S.title} className="fd">Ajustes ⚙️</h2>
+      {showHelp && <HelpModal onClose={()=>setShowHelp(false)}/>}
+      <button onClick={()=>setShowHelp(true)} style={{display:"flex",alignItems:"center",gap:12,width:"100%",background:"#EEF2FF",border:"1.5px solid #C7D2FE",borderRadius:16,padding:"14px 16px",marginTop:14,marginBottom:16,cursor:"pointer",textAlign:"left"}}>
+        <span style={{width:40,height:40,borderRadius:12,background:"#7C3AED",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>❓</span>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#1E293B"}} className="fb">Ayuda y preguntas frecuentes</div>
+          <div style={{fontSize:12,color:"#64748B"}} className="fm">¿Cómo añado mi sueldo? ¿Qué son los botes? y más</div>
+        </div>
+        <span style={{color:"#94A3B8"}}>→</span>
+      </button>
       {editUser ? (
         <div style={S.card}>
           <h3 style={{marginBottom:16,color:"#1E293B"}} className="fb">Editar perfil</h3>
@@ -838,26 +1019,43 @@ function EditBudgetModal({W,close,budgets,currentUser,showToast}) {
 function BotesScreen({currentUser,isAdmin,botes,transactions,setModal,showToast}) {
   const totalPct = botes.reduce((a,b)=>a+(b.pct||0),0);
   const totalBotes = botes.reduce((a,b)=>a+(b.amount||0),0);
-  async function delBote(id){ if(!window.confirm("¿Eliminar este bote?")) return; await deleteDoc(doc(db,"botes",id)); showToast("Bote eliminado","#EF4444"); }
+  const [confirmDel,setConfirmDel]=useState(null);
+  async function delBote(id){ await deleteDoc(doc(db,"botes",id)); showToast("Sobre eliminado","#EF4444"); }
   return (
     <div>
+      {confirmDel && (
+        <ConfirmModal title="¿Eliminar este sobre?" message={`"${confirmDel.name}" tiene ${(confirmDel.amount||0).toLocaleString("es-ES")} € guardados. Se perderá ese registro.`}
+          onCancel={()=>setConfirmDel(null)} onConfirm={()=>{ delBote(confirmDel.id); setConfirmDel(null); }}/>
+      )}
       <div style={S.scrHead}>
-        <h2 style={S.title} className="fd">Botes 🪣</h2>
-        <button style={{...S.addBtn,background:currentUser.color}} onClick={()=>setModal({type:"addBote"})}>＋</button>
+        <div>
+          <h2 style={S.title} className="fd">Botes 🪣</h2>
+          <p style={{color:"#64748B",fontSize:12,marginTop:2}} className="fm">Tus sobres de dinero 💰 — cada ingreso se reparte solo entre ellos</p>
+        </div>
+        <button style={{...S.addBtnBig,background:currentUser.color,flexShrink:0}} onClick={()=>setModal({type:"addBote"})}><Plus className="w-4 h-4"/><span className="fm">Añadir</span></button>
       </div>
       {botes.length>0 && (
-        <div style={{...S.card,background:"linear-gradient(135deg,#8B5CF6,#1E293B)",color:"#fff",marginBottom:16}}>
-          <div style={{fontSize:12,opacity:0.8}} className="fm">Total en botes</div>
+        <div style={{...S.card,background:"linear-gradient(135deg,#8B5CF6,#1E293B)",color:"#fff",marginBottom:16,marginTop:14}}>
+          <div style={{fontSize:12,opacity:0.8}} className="fm">Total en todos los sobres</div>
           <div style={{fontSize:28,fontWeight:800,margin:"4px 0"}} className="fd">{totalBotes.toLocaleString("es-ES")} €</div>
         </div>
       )}
       {botes.length>0 && totalPct!==100 && (
-        <div style={{background:"#FEF3C7",border:"2px solid #FCD34D",borderRadius:14,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
-          <AlertTriangle className="w-4 h-4" style={{color:"#B45309",flexShrink:0}}/>
-          <span style={{fontSize:13,color:"#92400E",fontWeight:600}} className="fm">Los porcentajes suman {totalPct}%, deberían sumar 100%.</span>
+        <div style={{background:"#FEF3C7",border:"2px solid #FCD34D",borderRadius:14,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
+          <AlertTriangle className="w-4 h-4" style={{color:"#B45309",flexShrink:0,marginTop:2}}/>
+          <span style={{fontSize:13,color:"#92400E",fontWeight:600,lineHeight:1.4}} className="fm">
+            Tus sobres reparten el {totalPct}% de cada ingreso, no el 100%.{totalPct<100?` Falta repartir el ${100-totalPct}%.`:` Te pasas por ${totalPct-100}%.`} Toca el ✏️ de cada sobre para ajustar su porcentaje hasta que sumen 100%.
+          </span>
         </div>
       )}
-      {botes.length===0 && <p style={S.empty} className="fm">Aún no hay botes. Crea el primero.</p>}
+      {botes.length===0 && (
+        <div style={{textAlign:"center",padding:"36px 16px",background:"#F8FAFC",borderRadius:16}}>
+          <div style={{fontSize:40,marginBottom:10}}>💰</div>
+          <p style={{color:"#1E293B",fontWeight:700,marginBottom:4}} className="fb">Aún no tienes sobres de dinero</p>
+          <p style={{color:"#64748B",fontSize:13,marginBottom:16}} className="fm">Crea sobres como "Ahorro" u "Ocio" y cada ingreso que registres se repartirá solo entre ellos, según el % que elijas.</p>
+          <button style={{...S.saveBtn,background:currentUser.color,padding:"10px 24px"}} onClick={()=>setModal({type:"addBote"})} className="fm">＋ Crear mi primer sobre</button>
+        </div>
+      )}
       {botes.map(b=>{
         const history = transactions.filter(t=>t.type==="expense"&&t.boteId===b.id).sort((a,b2)=>b2.date>a.date?1:-1);
         return (
@@ -869,7 +1067,7 @@ function BotesScreen({currentUser,isAdmin,botes,transactions,setModal,showToast}
             </div>
             <div style={{display:"flex",gap:2}}>
               <button onClick={()=>setModal({type:"editBote",data:b})} style={S.iconBtn}>✏️</button>
-              {isAdmin && <button onClick={()=>delBote(b.id)} style={S.iconBtn}>🗑️</button>}
+              {isAdmin && <button onClick={()=>setConfirmDel(b)} style={S.iconBtn}>🗑️</button>}
             </div>
           </div>
           <div style={{fontSize:26,fontWeight:800,color:"#1E293B",marginBottom:10}} className="fd">{(b.amount||0).toLocaleString("es-ES")} €</div>
@@ -1512,10 +1710,15 @@ function MealModal({day,mt,meal,pantry,people,onSave,onSwap,onClose}) {
 
 function PantryView({pantry,onUpd,onAdd,onDel,onReceipt}) {
   const [add,setAdd]=useState(false); const [n,setN]=useState({name:"",qty:1,unit:"g",threshold:1,cat:"Otros"});
+  const [confirmDel,setConfirmDel]=useState(null);
   const cats=useMemo(()=>[...new Set(pantry.map(x=>x.cat))],[pantry]);
   const low=lowItems(pantry);
   return (
     <div className="space-y-4">
+      {confirmDel && (
+        <ConfirmModal title="¿Eliminar este producto?" message={`"${confirmDel.name}" se quitará de la despensa.`}
+          onCancel={()=>setConfirmDel(null)} onConfirm={()=>{ onDel(confirmDel.id); setConfirmDel(null); }}/>
+      )}
       {low.length>0 && (
         <div className="bg-gradient-to-br from-amber-100 to-orange-100 border-2 border-amber-300 rounded-3xl p-4 fu shadow-sm">
           <div className="flex items-center gap-2 mb-2"><div className="w-7 h-7 rounded-full bg-amber-400 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-white"/></div><h3 className="fm text-xs uppercase text-amber-900 font-bold">Se está acabando ({low.length})</h3></div>
@@ -1556,7 +1759,7 @@ function PantryView({pantry,onUpd,onAdd,onDel,onReceipt}) {
                   <input type="number" value={x.qty} onChange={e=>onUpd(x.id,{qty:+e.target.value||0})} className="w-14 text-center bg-transparent fm text-sm font-semibold outline-none"/>
                   <span className="fm text-[10px] text-gray-500 w-6">{x.unit}</span>
                   <button onClick={()=>onUpd(x.id,{qty:+(x.qty+1).toFixed(2)})} className="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-600 shadow-sm flex items-center justify-center text-white"><Plus className="w-3 h-3"/></button>
-                  <button onClick={()=>onDel(x.id)} className="w-7 h-7 rounded-full hover:bg-red-100 flex items-center justify-center text-gray-300 hover:text-red-600 ml-1"><Trash2 className="w-3 h-3"/></button>
+                  <button onClick={()=>setConfirmDel(x)} className="w-7 h-7 rounded-full hover:bg-red-100 flex items-center justify-center text-gray-300 hover:text-red-600 ml-1"><Trash2 className="w-3 h-3"/></button>
                 </div>
               </div>
             ); })}
@@ -1712,6 +1915,7 @@ const S = {
   scrHead:  { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 },
   link:     { background:"transparent", border:"none", fontWeight:600, fontSize:13, cursor:"pointer" },
   addBtn:   { border:"none", borderRadius:12, padding:"8px 16px", color:"#fff", fontWeight:700, fontSize:18, cursor:"pointer" },
+  addBtnBig:{ border:"none", borderRadius:14, padding:"10px 18px", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6, boxShadow:"0 3px 10px rgba(0,0,0,0.15)" },
   iconBtn:  { background:"transparent", border:"none", cursor:"pointer", fontSize:16, padding:4 },
   empty:    { color:"#94A3B8", fontSize:14, textAlign:"center", padding:"16px 0" },
   lbl:      { display:"block", fontSize:12, fontWeight:600, color:"#64748B", marginBottom:4 },
