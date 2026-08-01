@@ -36,6 +36,18 @@ const DEFAULT_BOTES = [
   { name:"Imprevistos",  pct:10, color:"#EF4444" },
 ];
 
+// ─── RECURRING EXPENSES CONSTANTS ──────────────────────────────────────────────
+const REC_ICONS = ["🏠","💡","🚰","🌐","🛡️","🛒","⛽","👗","🎬","📱","🚗","🏥","🎓","💳","🏦","📺","🧴","🐶"];
+const mkRec = (id,name,amount,day,category,tipo,icon,color) => ({ id,name,amount,day,category,boteId:null,tipo,icon,color,active:true });
+const DEFAULT_RECURRENTES = [
+  mkRec("rec_alquiler","Alquiler",600,1,"Servicios","fijo","🏠","#3B82F6"),
+  mkRec("rec_luz","Luz",80,15,"Servicios","fijo","💡","#F59E0B"),
+  mkRec("rec_agua","Agua",30,20,"Servicios","fijo","🚰","#06C99B"),
+  mkRec("rec_internet","Internet",40,10,"Servicios","fijo","🌐","#8B5CF6"),
+  mkRec("rec_compra","Compra semanal",400,1,"Supermercado","variable","🛒","#22C55E"),
+  mkRec("rec_gasolina","Gasolina",100,1,"Transporte","variable","⛽","#EF4444"),
+];
+
 // ─── MENU CONSTANTS ───────────────────────────────────────────────────────────
 const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const DAY_SHORT = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -248,6 +260,8 @@ export default function App() {
   const [budgets, setBudgets]           = useState(DEFAULT_BUDGETS);
   const [botes, setBotes]               = useState([]);
   const [botesLoaded, setBotesLoaded]   = useState(false);
+  const [recurrentes, setRecurrentes]           = useState([]);
+  const [recurrentesLoaded, setRecurrentesLoaded] = useState(false);
   const [fbLoading, setFbLoading]       = useState(true);
   const [currentUser, setCurrentUser]   = useState(null);
   const [loginStep, setLoginStep]       = useState({ selectUser:true, selectedUser:null });
@@ -290,6 +304,8 @@ export default function App() {
       if (pSnap.empty) for (const item of DEFAULT_PANTRY_MENU) await setDoc(doc(db,"pantryMenu",item.id), item);
       const boSnap = await getDocs(collection(db,"botes"));
       if (boSnap.empty) for (const b of DEFAULT_BOTES) { const id=`bote_${b.name.toLowerCase().replace(/\s+/g,"-")}`; await setDoc(doc(db,"botes",id), {...b,id,amount:0}); }
+      const rSnap = await getDocs(collection(db,"recurrentes"));
+      if (rSnap.empty) for (const r of DEFAULT_RECURRENTES) await setDoc(doc(db,"recurrentes",r.id), r);
     };
     seed();
     const u1 = onSnapshot(collection(db,"users"),        s=>setUsers(s.docs.map(d=>({...d.data(),id:d.id}))));
@@ -299,10 +315,40 @@ export default function App() {
     const u5 = onSnapshot(doc(db,"menuData","current"),  s=>{ if(s.exists()){ const d=s.data(); setMenuData(c=>({...c,menu:d.menu||DEFAULT_MENU,people:d.people??2})); } setMenuDocLoaded(true); });
     const u6 = onSnapshot(collection(db,"pantryMenu"),   s=>{ setMenuData(c=>({...c,pantryMenu:s.docs.map(d=>({...d.data(),id:d.id}))})); setPantryLoaded(true); });
     const u7 = onSnapshot(collection(db,"botes"),        s=>{ setBotes(s.docs.map(d=>({...d.data(),id:d.id}))); setBotesLoaded(true); });
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
+    const u8 = onSnapshot(collection(db,"recurrentes"),  s=>{ setRecurrentes(s.docs.map(d=>({...d.data(),id:d.id}))); setRecurrentesLoaded(true); });
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); };
   }, []);
 
   function showToast(msg, color="#22C55E") { setToast({msg,color}); setTimeout(()=>setToast(null),2500); }
+
+  // ── Recurring expenses automation ───────────────────────────────────────────
+  const autoProcessedRef = useRef(new Set());
+  useEffect(() => {
+    if (!currentUser || !recurrentesLoaded || fbLoading) return;
+    const now = new Date();
+    const today = now.getDate();
+    const todayStr = now.toISOString().slice(0,10);
+    const monthPrefix = todayStr.slice(0,7);
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    recurrentes.forEach(async r => {
+      if (!r.active) return;
+      const effDay = Math.min(r.day, daysInMonth);
+      if (effDay !== today) return;
+      const key = `${r.id}_${monthPrefix}`;
+      if (autoProcessedRef.current.has(key)) return;
+      const already = transactions.some(t=>t.recurrenteId===r.id && t.date && t.date.startsWith(monthPrefix));
+      if (already) { autoProcessedRef.current.add(key); return; }
+      autoProcessedRef.current.add(key);
+      const bote = botes.find(b=>b.id===r.boteId);
+      const txId = `tx_auto_${r.id}_${monthPrefix}`;
+      await setDoc(doc(db,"transactions",txId), {
+        id:txId, type:"expense", category:r.category, amount:r.amount, note:`Gasto recurrente: ${r.name}`,
+        date:todayStr, userId:currentUser.id, boteId:r.boteId||null, boteNombre:bote?bote.name:null, recurrenteId:r.id,
+      });
+      if (bote) await updateDoc(doc(db,"botes",bote.id), { amount:+((bote.amount||0)-r.amount).toFixed(2) });
+      showToast(`Se ha registrado automáticamente: ${r.name} ${r.amount}€`, "#3B82F6");
+    });
+  }, [currentUser, recurrentesLoaded, fbLoading, recurrentes, transactions, botes]);
 
   // ── Auth ─────────────────────────────────────────────────────────────────
   function selectUser(u) { setLoginStep({selectUser:false,selectedUser:u}); setPinInput(""); setPinError(false); }
@@ -363,7 +409,7 @@ export default function App() {
   },[menuData]);
   const lowN = useMemo(()=>lowItems(menuData.pantryMenu).length,[menuData.pantryMenu]);
 
-  const loading = fbLoading || !menuDocLoaded || !pantryLoaded || !botesLoaded;
+  const loading = fbLoading || !menuDocLoaded || !pantryLoaded || !botesLoaded || !recurrentesLoaded;
 
   if (loading) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#F8FAFC"}}>
@@ -479,13 +525,14 @@ export default function App() {
             {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast} showCoach={showCoach&&isAdmin} dismissCoach={dismissCoach}/>}
             {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} transactions={transactions} setModal={setModal} showToast={showToast}/>}
-            {familyScreen==="calendar" && <CalendarScreen currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} menu={menuData.menu} setModal={setModal}/>}
-            {familyScreen==="stats"    && <StatsScreen    currentUser={currentUser} isAdmin={isAdmin} transactions={transactions}/>}
+            {familyScreen==="recurrentes" && <RecurrentesScreen currentUser={currentUser} isAdmin={isAdmin} recurrentes={recurrentes} botes={botes} setModal={setModal} showToast={showToast}/>}
+            {familyScreen==="calendar" && <CalendarScreen currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} menu={menuData.menu} recurrentes={recurrentes} setModal={setModal}/>}
+            {familyScreen==="stats"    && <StatsScreen    currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} recurrentes={recurrentes}/>}
             {familyScreen==="tasks"    && <TasksScreen    currentUser={currentUser} isAdmin={isAdmin} myTasks={myTasks()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="settings" && <SettingsScreen currentUser={currentUser} isAdmin={isAdmin} users={users} showToast={showToast} setCurrentUser={setCurrentUser}/>}
           </main>
           <nav style={S.nav}>
-            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["calendar","📅","Calendario"],["stats","📊","Stats"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
+            {[["home","🏠","Inicio"],["finance","💰","Finanzas"],["botes","🪣","Botes"],["recurrentes","🔄","Recurrentes"],["calendar","📅","Calendario"],["stats","📊","Stats"],["tasks","✅","Tareas"],["settings","⚙️","Ajustes"]].map(([k,ic,lb])=>(
               <button key={k} onClick={()=>setFamilyScreen(k)} style={{...S.navBtn,...(familyScreen===k?{color:currentUser.color,borderTop:`2px solid ${currentUser.color}`,background:currentUser.color+"10"}:{})}}>
                 <span style={{fontSize:22}}>{ic}</span><span style={{fontSize:10,fontWeight:700}} className="fm">{lb}</span>
               </button>
@@ -899,6 +946,8 @@ function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast})
   if (modal.type==="addBote") return <AddBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast}/>;
   if (modal.type==="editBote") return <EditBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast} bote={modal.data}/>;
   if (modal.type==="withdrawBote") return <WithdrawBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast} bote={modal.data}/>;
+  if (modal.type==="addRecurrente") return <RecurrenteModal W={W} close={close} currentUser={currentUser} showToast={showToast} botes={botes} recurrente={null} initTipo={modal.data?.tipo}/>;
+  if (modal.type==="editRecurrente") return <RecurrenteModal W={W} close={close} currentUser={currentUser} showToast={showToast} botes={botes} recurrente={modal.data}/>;
   return null;
 }
 
@@ -1169,9 +1218,140 @@ function WithdrawBoteModal({W,close,currentUser,showToast,bote}) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// RECURRING EXPENSES
+// ══════════════════════════════════════════════════════════════════════════════
+function RecurrentesScreen({currentUser,isAdmin,recurrentes,botes,setModal,showToast}) {
+  const [tab,setTab] = useState("fijo");
+  const [confirmDel,setConfirmDel] = useState(null);
+  const filtered = recurrentes.filter(r=>r.tipo===tab).sort((a,b)=>a.day-b.day);
+  const monthTotal = filtered.filter(r=>r.active).reduce((a,r)=>a+r.amount,0);
+  const getBote = id => botes.find(b=>b.id===id);
+  async function delRec(id){ await deleteDoc(doc(db,"recurrentes",id)); showToast("Gasto recurrente eliminado","#EF4444"); }
+  async function toggleActive(r){ await updateDoc(doc(db,"recurrentes",r.id), { active:!r.active }); showToast(r.active?"Pausado ⏸":"Activado ✅"); }
+  return (
+    <div>
+      {confirmDel && (
+        <ConfirmModal title="¿Eliminar este gasto recurrente?" message={`"${confirmDel.name}" se eliminará para siempre. No afecta a los movimientos ya registrados.`}
+          onCancel={()=>setConfirmDel(null)} onConfirm={()=>{ delRec(confirmDel.id); setConfirmDel(null); }}/>
+      )}
+      <div style={S.scrHead}>
+        <div>
+          <h2 style={S.title} className="fd">Recurrentes 🔄</h2>
+          <p style={{color:"#64748B",fontSize:12,marginTop:2}} className="fm">Gastos que se registran solos cada mes</p>
+        </div>
+        {isAdmin && <button style={{...S.addBtnBig,background:currentUser.color,flexShrink:0}} onClick={()=>setModal({type:"addRecurrente",data:{tipo:tab}})}><Plus className="w-4 h-4"/><span className="fm">Añadir</span></button>}
+      </div>
+      <div style={S.tabs}>
+        {[["fijo","Gastos fijos"],["variable","Gastos variables"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)} style={{...S.tabBtn,...(tab===k?{borderBottomColor:currentUser.color,color:currentUser.color}:{})}} className="fm">{l}</button>
+        ))}
+      </div>
+      <div style={{...S.card,background:"linear-gradient(135deg,#3B82F6,#1E293B)",color:"#fff",marginBottom:16}}>
+        <div style={{fontSize:12,opacity:0.8}} className="fm">Total mensual ({tab==="fijo"?"fijos":"variables"}) activos</div>
+        <div style={{fontSize:26,fontWeight:800,margin:"4px 0"}} className="fd">{monthTotal.toLocaleString("es-ES")} €</div>
+      </div>
+      {filtered.length===0 && (
+        <div style={{textAlign:"center",padding:"32px 16px",background:"#F8FAFC",borderRadius:16}}>
+          <div style={{fontSize:40,marginBottom:10}}>🔄</div>
+          <p style={{color:"#1E293B",fontWeight:700,marginBottom:4}} className="fb">Sin gastos {tab==="fijo"?"fijos":"variables"} todavía</p>
+          <p style={{color:"#64748B",fontSize:13}} className="fm">Añade uno y se registrará solo cada mes en su día de pago.</p>
+        </div>
+      )}
+      {filtered.map(r=>{
+        const bote = getBote(r.boteId);
+        return (
+          <div key={r.id} style={{...S.card,opacity:r.active?1:0.55,borderLeft:`4px solid ${r.color}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <span style={{fontSize:26}}>{r.icon}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:15,color:"#1E293B"}} className="fb">{r.name}{!r.active && " (pausado)"}</div>
+                  <div style={{fontSize:12,color:"#64748B"}} className="fm">Día {r.day} · {r.category}{bote?` · 🪣 ${bote.name}`:" · Sin bote"}</div>
+                </div>
+              </div>
+              <div style={{fontSize:18,fontWeight:800,color:r.color,whiteSpace:"nowrap"}} className="fd">{r.amount.toLocaleString("es-ES")} €</div>
+            </div>
+            {isAdmin && (
+              <div style={{display:"flex",gap:8,marginTop:12}}>
+                <button onClick={()=>toggleActive(r)} style={{...S.saveBtn,flex:1,fontSize:12,padding:"8px 0",background:r.active?"#F1F5F9":"#DCFCE7",color:r.active?"#64748B":"#166534"}} className="fm">{r.active?"⏸ Pausar":"▶️ Activar"}</button>
+                <button onClick={()=>setModal({type:"editRecurrente",data:r})} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>✏️</button>
+                <button onClick={()=>setConfirmDel(r)} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>🗑️</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecurrenteModal({W,close,currentUser,showToast,botes,recurrente,initTipo}) {
+  const isEdit = !!recurrente;
+  const [form,setForm] = useState(()=> isEdit
+    ? { name:recurrente.name, amount:String(recurrente.amount), day:String(recurrente.day), category:recurrente.category, boteId:recurrente.boteId||"", tipo:recurrente.tipo, icon:recurrente.icon, color:recurrente.color, active:recurrente.active }
+    : { name:"", amount:"", day:"1", category:EXPENSE_CATS[0], boteId:"", tipo:initTipo||"fijo", icon:REC_ICONS[0], color:BOTE_COLORS[0], active:true }
+  );
+  async function submit(){
+    const amount=Number(form.amount), day=Number(form.day);
+    if(!form.name.trim()||!form.amount||isNaN(amount)||amount<=0||!day||day<1||day>31){ showToast("Completa nombre, importe y día (1-31) válidos","#EF4444"); return; }
+    const data = { name:form.name.trim(), amount, day, category:form.category, boteId:form.boteId||null, tipo:form.tipo, icon:form.icon, color:form.color, active:form.active };
+    if (isEdit) { await updateDoc(doc(db,"recurrentes",recurrente.id), data); showToast("Gasto recurrente actualizado ✅"); }
+    else { const id=`rec_${form.name.toLowerCase().trim().replace(/\s+/g,"-")}-${Date.now()}`; await setDoc(doc(db,"recurrentes",id), {...data,id}); showToast("Gasto recurrente creado 🔄"); }
+    close();
+  }
+  return (
+    <W title={isEdit?"Editar gasto recurrente":"Nuevo gasto recurrente"}>
+      <label style={S.lbl} className="fm">Nombre</label>
+      <input style={S.inp} placeholder="Ej. Alquiler" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Importe mensual (€)</label>
+      <input style={S.inp} type="number" placeholder="0.00" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} className="fb"/>
+      <label style={S.lbl} className="fm">Día del mes (1-31)</label>
+      <input style={S.inp} type="number" min="1" max="31" value={form.day} onChange={e=>setForm(f=>({...f,day:e.target.value.replace(/\D/g,"").slice(0,2)}))} className="fb"/>
+      <label style={S.lbl} className="fm">Tipo</label>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[["fijo","Fijo"],["variable","Variable"]].map(([k,l])=>(
+          <button type="button" key={k} onClick={()=>setForm(f=>({...f,tipo:k}))} style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,fontWeight:600,fontSize:14,cursor:"pointer",background:form.tipo===k?currentUser.color:"#F1F5F9",color:form.tipo===k?"#fff":"#64748B"}} className="fm">{l}</button>
+        ))}
+      </div>
+      <label style={S.lbl} className="fm">Categoría</label>
+      <select style={S.inp} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} className="fb">{EXPENSE_CATS.map(c=><option key={c} value={c}>{c}</option>)}</select>
+      <label style={S.lbl} className="fm">Bote del que se descuenta</label>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+        <button type="button" onClick={()=>setForm(f=>({...f,boteId:""}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:`2px solid ${form.boteId===""?"#94A3B8":"#E2E8F0"}`,background:form.boteId===""?"#F1F5F9":"#fff",cursor:"pointer",textAlign:"left"}}>
+          <span style={{width:14,height:14,borderRadius:"50%",background:"#CBD5E1",flexShrink:0}}/>
+          <span style={{flex:1,fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">Sin bote</span>
+        </button>
+        {botes.map(b=>(
+          <button type="button" key={b.id} onClick={()=>setForm(f=>({...f,boteId:b.id}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,border:`2px solid ${form.boteId===b.id?b.color:"#E2E8F0"}`,background:form.boteId===b.id?b.color+"15":"#fff",cursor:"pointer",textAlign:"left"}}>
+            <span style={{width:14,height:14,borderRadius:"50%",background:b.color,flexShrink:0}}/>
+            <span style={{flex:1,fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">{b.name}</span>
+            <span style={{fontSize:13,fontWeight:700,color:"#64748B"}} className="fd">{(b.amount||0).toLocaleString("es-ES")} €</span>
+          </button>
+        ))}
+      </div>
+      <label style={S.lbl} className="fm">Icono</label>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+        {REC_ICONS.map(ic=><button type="button" key={ic} onClick={()=>setForm(f=>({...f,icon:ic}))} style={{fontSize:22,padding:6,border:form.icon===ic?`2px solid ${currentUser.color}`:"2px solid transparent",borderRadius:8,background:form.icon===ic?"#F1F5F9":"transparent",cursor:"pointer"}}>{ic}</button>)}
+      </div>
+      <label style={S.lbl} className="fm">Color</label>
+      <ColorPicker value={form.color} onChange={c=>setForm(f=>({...f,color:c}))}/>
+      {isEdit && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#F8FAFC",borderRadius:12,padding:"10px 14px",marginBottom:16}}>
+          <span style={{fontWeight:600,fontSize:14,color:"#1E293B"}} className="fb">Activo</span>
+          <button type="button" onClick={()=>setForm(f=>({...f,active:!f.active}))} style={{width:44,height:26,borderRadius:99,border:"none",background:form.active?"#22C55E":"#CBD5E1",position:"relative",cursor:"pointer"}}>
+            <span style={{position:"absolute",top:3,left:form.active?21:3,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .15s"}}/>
+          </button>
+        </div>
+      )}
+      <button onClick={submit} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Guardar</button>
+    </W>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CALENDAR SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
-function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
+function CalendarScreen({currentUser,isAdmin,transactions,menu,recurrentes,setModal}) {
   const today = new Date();
   const todayStr = today.toISOString().slice(0,10);
   const [cursor,setCursor] = useState({y:today.getFullYear(), m:today.getMonth()});
@@ -1192,6 +1372,15 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
   const monthExpense = useMemo(()=>transactions.filter(t=>t.type==="expense"&&t.date?.startsWith(monthPrefix)).reduce((a,t)=>a+t.amount,0),[transactions,monthPrefix]);
   const monthBalance = monthIncome-monthExpense;
 
+  const recByDay = useMemo(()=>{
+    const m={};
+    (recurrentes||[]).filter(r=>r.active).forEach(r=>{
+      const effDay = Math.min(r.day, numDays);
+      (m[effDay]=m[effDay]||[]).push(r);
+    });
+    return m;
+  },[recurrentes,numDays]);
+
   function changeMonth(delta){
     let m=cursor.m+delta, y=cursor.y;
     if(m<0){m=11;y--;} else if(m>11){m=0;y++;}
@@ -1207,6 +1396,8 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
   const selExpense = selTx.filter(t=>t.type==="expense").reduce((a,t)=>a+t.amount,0);
   const selWeekday = selectedDate ? DAYS[(new Date(selectedDate+"T00:00:00").getDay()+6)%7] : null;
   const selMeals = selWeekday ? menu[selWeekday] : null;
+  const selDayNum = selectedDate ? +selectedDate.slice(8,10) : null;
+  const selRecurrentes = selDayNum ? (recByDay[selDayNum]||[]) : [];
 
   return (
     <div>
@@ -1237,8 +1428,10 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
           const hasIncome = isAdmin && dayTx.some(t=>t.type==="income");
           const hasExpense = isAdmin && dayTx.some(t=>t.type==="expense");
           const isToday = dateStr===todayStr;
+          const dayRecurrentes = recByDay[d]||[];
           return (
-            <button key={i} onClick={()=>setSelectedDate(dateStr)} style={{aspectRatio:"1",borderRadius:10,border:isToday?`2px solid ${currentUser.color}`:"1.5px solid #F1F5F9",background:selectedDate===dateStr?currentUser.color+"15":"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,padding:2}}>
+            <button key={i} onClick={()=>setSelectedDate(dateStr)} style={{position:"relative",aspectRatio:"1",borderRadius:10,border:isToday?`2px solid ${currentUser.color}`:"1.5px solid #F1F5F9",background:selectedDate===dateStr?currentUser.color+"15":"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,padding:2}}>
+              {dayRecurrentes.length>0 && <span style={{position:"absolute",top:-4,right:-2,fontSize:10,lineHeight:1}}>🔄</span>}
               <span style={{fontSize:12,fontWeight:600,color:"#1E293B"}} className="fb">{d}</span>
               <div style={{display:"flex",gap:2}}>
                 {hasIncome && <span style={{width:5,height:5,borderRadius:"50%",background:"#22C55E"}}/>}
@@ -1296,6 +1489,21 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,setModal}) {
                     </div>
                   </div>
                 ); })}
+              </div>
+            )}
+            {selRecurrentes.length>0 && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#64748B",marginBottom:8}} className="fm">🔄 Gastos recurrentes programados</div>
+                {selRecurrentes.map(r=>(
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0"}}>
+                    <span style={{fontSize:16}}>{r.icon}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}} className="fb">{r.name}</div>
+                      <div style={{fontSize:11,color:"#94A3B8"}} className="fm">{r.tipo==="fijo"?"Fijo":"Variable"}</div>
+                    </div>
+                    <span style={{fontSize:13,fontWeight:700,color:r.color}} className="fb">{r.amount.toLocaleString("es-ES")} €</span>
+                  </div>
+                ))}
               </div>
             )}
             {isAdmin && (
@@ -1393,9 +1601,14 @@ function PieChart({data,size=160}) {
   );
 }
 
-function StatsScreen({currentUser,isAdmin,transactions}) {
+function StatsScreen({currentUser,isAdmin,transactions,recurrentes}) {
   const today = new Date();
   const [statMonth,setStatMonth] = useState(`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`);
+  const curMonthPrefix = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
+  const fixedMonthly = useMemo(()=>(recurrentes||[]).filter(r=>r.active&&r.tipo==="fijo").reduce((a,r)=>a+r.amount,0),[recurrentes]);
+  const variableMonthly = useMemo(()=>(recurrentes||[]).filter(r=>r.active&&r.tipo==="variable").reduce((a,r)=>a+r.amount,0),[recurrentes]);
+  const recurringSpentMonth = useMemo(()=>transactions.filter(t=>t.type==="expense"&&t.recurrenteId&&t.date?.startsWith(curMonthPrefix)).reduce((a,t)=>a+t.amount,0),[transactions,curMonthPrefix]);
+  const oneOffSpentMonth = useMemo(()=>transactions.filter(t=>t.type==="expense"&&!t.recurrenteId&&t.date?.startsWith(curMonthPrefix)).reduce((a,t)=>a+t.amount,0),[transactions,curMonthPrefix]);
 
   const last6 = useMemo(()=>{
     const arr=[];
@@ -1481,6 +1694,22 @@ function StatsScreen({currentUser,isAdmin,transactions}) {
           <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Ahorro total</div><div style={{fontSize:16,fontWeight:800,color:"#3B82F6"}} className="fd">{yearSavings>=0?"+":""}{yearSavings.toLocaleString("es-ES")} €</div></div>
           <div><div style={{fontSize:11,color:"#64748B"}} className="fm">% de ahorro</div><div style={{fontSize:16,fontWeight:800,color:"#8B5CF6"}} className="fd">{yearSavingsPct.toFixed(1)}%</div></div>
         </div>
+      </div>
+      <div style={S.card}>
+        <span style={S.cardTitle} className="fb">Gastos fijos vs variables (recurrentes activos)</span>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Fijos / mes</div><div style={{fontSize:16,fontWeight:800,color:"#3B82F6"}} className="fd">{fixedMonthly.toLocaleString("es-ES")} €</div></div>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Variables / mes</div><div style={{fontSize:16,fontWeight:800,color:"#F59E0B"}} className="fd">{variableMonthly.toLocaleString("es-ES")} €</div></div>
+        </div>
+        <PieChart data={[{label:"Fijos",value:fixedMonthly,color:"#3B82F6"},{label:"Variables",value:variableMonthly,color:"#F59E0B"}]}/>
+      </div>
+      <div style={S.card}>
+        <span style={S.cardTitle} className="fb">Recurrentes 🔄 vs gastos puntuales (este mes)</span>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Recurrentes</div><div style={{fontSize:16,fontWeight:800,color:"#8B5CF6"}} className="fd">{recurringSpentMonth.toLocaleString("es-ES")} €</div></div>
+          <div><div style={{fontSize:11,color:"#64748B"}} className="fm">Puntuales</div><div style={{fontSize:16,fontWeight:800,color:"#EC4899"}} className="fd">{oneOffSpentMonth.toLocaleString("es-ES")} €</div></div>
+        </div>
+        <PieChart data={[{label:"Recurrentes",value:recurringSpentMonth,color:"#8B5CF6"},{label:"Puntuales",value:oneOffSpentMonth,color:"#EC4899"}]}/>
       </div>
       <div style={S.card}>
         <span style={S.cardTitle} className="fb">Este mes vs. anterior</span>
