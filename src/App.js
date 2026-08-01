@@ -48,6 +48,26 @@ const DEFAULT_RECURRENTES = [
   mkRec("rec_gasolina","Gasolina",100,1,"Transporte","variable","⛽","#EF4444"),
 ];
 
+// Real vs projected month-end balance, accounting for active recurring expenses not yet paid.
+function computeMonthlyBalance(transactions, recurrentes, ref=new Date()) {
+  const monthPrefix = `${ref.getFullYear()}-${String(ref.getMonth()+1).padStart(2,"0")}`;
+  const todayStr = ref.toISOString().slice(0,10);
+  const todayNum = ref.getDate();
+  const daysInMonth = new Date(ref.getFullYear(), ref.getMonth()+1, 0).getDate();
+  const monthIncome = transactions.filter(t=>t.type==="income" && t.date?.startsWith(monthPrefix)).reduce((a,t)=>a+t.amount,0);
+  const monthExpenseToDate = transactions.filter(t=>t.type==="expense" && t.date?.startsWith(monthPrefix) && t.date<=todayStr).reduce((a,t)=>a+t.amount,0);
+  const currentBalance = +(monthIncome-monthExpenseToDate).toFixed(2);
+  const pendingRecurrentes = (recurrentes||[]).filter(r=>{
+    if (!r.active) return false;
+    const effDay = Math.min(r.day, daysInMonth);
+    if (effDay <= todayNum) return false;
+    return !transactions.some(t=>t.recurrenteId===r.id && t.date && t.date.startsWith(monthPrefix));
+  });
+  const pendingTotal = +pendingRecurrentes.reduce((a,r)=>a+r.amount,0).toFixed(2);
+  const projectedBalance = +(currentBalance-pendingTotal).toFixed(2);
+  return { monthIncome, monthExpenseToDate, currentBalance, pendingRecurrentes, pendingTotal, projectedBalance };
+}
+
 // ─── MENU CONSTANTS ───────────────────────────────────────────────────────────
 const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const DAY_SHORT = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -473,7 +493,7 @@ export default function App() {
     <div style={S.root}>
       <style>{MENU_STYLES}</style>
       {toast && <div style={{...S.toast,background:toast.color}} className="fm toastAnim">{toast.msg}</div>}
-      {modal && <FamilyModal modal={modal} setModal={setModal} users={users} budgets={budgets} botes={botes} currentUser={currentUser} showToast={showToast}/>}
+      {modal && <FamilyModal modal={modal} setModal={setModal} users={users} budgets={budgets} botes={botes} currentUser={currentUser} showToast={showToast} transactions={transactions} recurrentes={recurrentes}/>}
       {openMeal && (
         <MealModal day={DAYS[dayIdx]} mt={MEAL_TYPES.find(m=>m.k===openMeal.k)} meal={menuData.menu[DAYS[dayIdx]][openMeal.k]}
           pantry={menuData.pantryMenu} people={menuData.people}
@@ -522,10 +542,10 @@ export default function App() {
       {appSection==="family" && (
         <div style={S.appWrap}>
           <main style={S.main}>
-            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast} showCoach={showCoach&&isAdmin} dismissCoach={dismissCoach}/>}
+            {familyScreen==="home"     && <HomeScreen     currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} myTasks={myTasks()} transactions={transactions} recurrentes={recurrentes} setScreen={setFamilyScreen} setModal={setModal} getUser={getUser} showToast={showToast} showCoach={showCoach&&isAdmin} dismissCoach={dismissCoach}/>}
             {familyScreen==="finance"  && <FinanceScreen  currentUser={currentUser} isAdmin={isAdmin} balance={balance} totalIncome={totalIncome} totalExpense={totalExpense} totalBotes={totalBotes} available={available} transactions={transactions} budgets={budgets} expByCat={expByCat()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
             {familyScreen==="botes"    && <BotesScreen    currentUser={currentUser} isAdmin={isAdmin} botes={botes} transactions={transactions} setModal={setModal} showToast={showToast}/>}
-            {familyScreen==="recurrentes" && <RecurrentesScreen currentUser={currentUser} isAdmin={isAdmin} recurrentes={recurrentes} botes={botes} setModal={setModal} showToast={showToast}/>}
+            {familyScreen==="recurrentes" && <RecurrentesScreen currentUser={currentUser} isAdmin={isAdmin} recurrentes={recurrentes} transactions={transactions} botes={botes} setModal={setModal} showToast={showToast}/>}
             {familyScreen==="calendar" && <CalendarScreen currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} menu={menuData.menu} recurrentes={recurrentes} setModal={setModal}/>}
             {familyScreen==="stats"    && <StatsScreen    currentUser={currentUser} isAdmin={isAdmin} transactions={transactions} recurrentes={recurrentes}/>}
             {familyScreen==="tasks"    && <TasksScreen    currentUser={currentUser} isAdmin={isAdmin} myTasks={myTasks()} setModal={setModal} showToast={showToast} getUser={getUser}/>}
@@ -629,9 +649,10 @@ function smartSummary({balance,available,totalExpense,transactions}) {
   return msgs;
 }
 
-function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,myTasks,transactions,setScreen,setModal,getUser,showCoach,dismissCoach}) {
+function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalBotes,available,myTasks,transactions,recurrentes,setScreen,setModal,getUser,showCoach,dismissCoach}) {
   const pending=myTasks.filter(t=>!t.done); const done=myTasks.filter(t=>t.done);
   const summary = isAdmin ? smartSummary({balance,available,totalExpense,transactions}) : [];
+  const monthly = useMemo(()=>computeMonthlyBalance(transactions, recurrentes), [transactions, recurrentes]);
   return (
     <div>
       <h2 style={S.title} className="fd">Hola, {currentUser.name} {currentUser.emoji}</h2>
@@ -645,6 +666,27 @@ function HomeScreen({currentUser,isAdmin,balance,totalIncome,totalExpense,totalB
             <div><div style={{fontSize:11,opacity:0.7}} className="fm">En sobres 💰</div><div style={{fontWeight:700}} className="fb">{totalBotes.toLocaleString("es-ES")} €</div></div>
             <div><div style={{fontSize:11,opacity:0.7}} className="fm">Disponible</div><div style={{fontWeight:700}} className="fb">{available.toLocaleString("es-ES")} €</div></div>
           </div>
+        </div>
+      )}
+      {isAdmin && (
+        <div style={{...S.card,marginBottom:16}}>
+          <div style={{display:"flex",gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:11,color:"#64748B"}} className="fm">Saldo actual</div>
+              <div style={{fontSize:21,fontWeight:800,color:monthly.currentBalance>=0?"#1E293B":"#EF4444"}} className="fd">{monthly.currentBalance>=0?"+":""}{monthly.currentBalance.toLocaleString("es-ES")} €</div>
+            </div>
+            <div style={{flex:1,borderLeft:"1.5px solid #F1F5F9",paddingLeft:12}}>
+              <div style={{fontSize:11,color:"#64748B"}} className="fm">Saldo a fin de mes</div>
+              <div style={{fontSize:21,fontWeight:800,color:monthly.projectedBalance>=0?"#1E293B":"#EF4444"}} className="fd">{monthly.projectedBalance>=0?"+":""}{monthly.projectedBalance.toLocaleString("es-ES")} €</div>
+            </div>
+          </div>
+          {monthly.pendingTotal>0 && <div style={{fontSize:11,color:"#94A3B8",marginTop:10}} className="fm">🔄 Recurrentes pendientes este mes: -{monthly.pendingTotal.toLocaleString("es-ES")} €</div>}
+          {monthly.projectedBalance<0 && (
+            <div style={{marginTop:10,padding:"8px 12px",borderRadius:10,background:"#FEE2E2",border:"1.5px solid #FCA5A5",display:"flex",alignItems:"center",gap:8}}>
+              <AlertTriangle className="w-4 h-4" style={{color:"#B91C1C",flexShrink:0}}/>
+              <span style={{fontSize:12,color:"#B91C1C",fontWeight:600}} className="fm">Con los recurrentes pendientes, el saldo de fin de mes será negativo.</span>
+            </div>
+          )}
         </div>
       )}
       {summary.map((m,i)=>(
@@ -928,7 +970,7 @@ function SettingsScreen({currentUser,isAdmin,users,showToast,setCurrentUser}) {
   );
 }
 
-function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast}) {
+function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast,transactions,recurrentes}) {
   const close=()=>setModal(null);
   const W=({title,children})=>(
     <div style={S.overlay} onClick={e=>{if(e.target===e.currentTarget)close();}}>
@@ -948,7 +990,43 @@ function FamilyModal({modal,setModal,users,budgets,botes,currentUser,showToast})
   if (modal.type==="withdrawBote") return <WithdrawBoteModal W={W} close={close} currentUser={currentUser} showToast={showToast} bote={modal.data}/>;
   if (modal.type==="addRecurrente") return <RecurrenteModal W={W} close={close} currentUser={currentUser} showToast={showToast} botes={botes} recurrente={null} initTipo={modal.data?.tipo}/>;
   if (modal.type==="editRecurrente") return <RecurrenteModal W={W} close={close} currentUser={currentUser} showToast={showToast} botes={botes} recurrente={modal.data}/>;
+  if (modal.type==="boteAvailability") return <BoteAvailabilityModal W={W} close={close} currentUser={currentUser} transactions={transactions} recurrentes={recurrentes}/>;
   return null;
+}
+
+function BoteAvailabilityModal({W,close,currentUser,transactions,recurrentes}) {
+  const { monthIncome, monthExpenseToDate, pendingTotal, projectedBalance } = computeMonthlyBalance(transactions, recurrentes);
+  const positive = projectedBalance>=0;
+  return (
+    <W title="Disponible para distribuir en botes">
+      <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:13,color:"#64748B"}} className="fm">Ingresos del mes</span>
+          <span style={{fontSize:14,fontWeight:700,color:"#22C55E"}} className="fb">+{monthIncome.toLocaleString("es-ES")} €</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:13,color:"#64748B"}} className="fm">Gastos registrados</span>
+          <span style={{fontSize:14,fontWeight:700,color:"#EF4444"}} className="fb">-{monthExpenseToDate.toLocaleString("es-ES")} €</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:13,color:"#64748B"}} className="fm">🔄 Recurrentes pendientes</span>
+          <span style={{fontSize:14,fontWeight:700,color:"#F59E0B"}} className="fb">-{pendingTotal.toLocaleString("es-ES")} €</span>
+        </div>
+        <div style={{height:1,background:"#E2E8F0",margin:"2px 0"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:14,fontWeight:700,color:"#1E293B"}} className="fb">Disponible para botes</span>
+          <span style={{fontSize:18,fontWeight:800,color:positive?"#22C55E":"#EF4444"}} className="fd">{positive?"+":""}{projectedBalance.toLocaleString("es-ES")} €</span>
+        </div>
+      </div>
+      {!positive && (
+        <div style={{padding:"10px 12px",borderRadius:12,background:"#FEE2E2",border:"1.5px solid #FCA5A5",marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
+          <AlertTriangle className="w-4 h-4" style={{color:"#B91C1C",flexShrink:0,marginTop:1}}/>
+          <span style={{fontSize:12,color:"#B91C1C",fontWeight:600,lineHeight:1.4}} className="fm">Con los recurrentes pendientes de pagar este mes, no queda dinero disponible para repartir en botes.</span>
+        </div>
+      )}
+      <button onClick={close} style={{...S.saveBtn,background:currentUser.color,width:"100%"}} className="fm">Entendido</button>
+    </W>
+  );
 }
 
 function AddTxModal({W,close,currentUser,showToast,initType,initDate,botes}) {
@@ -1089,6 +1167,9 @@ function BotesScreen({currentUser,isAdmin,botes,transactions,setModal,showToast}
           <div style={{fontSize:28,fontWeight:800,margin:"4px 0"}} className="fd">{totalBotes.toLocaleString("es-ES")} €</div>
         </div>
       )}
+      {botes.length>0 && (
+        <button onClick={()=>setModal({type:"boteAvailability"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",background:"#EEF2FF",border:"1.5px solid #C7D2FE",borderRadius:14,padding:"12px 14px",marginBottom:16,cursor:"pointer",fontWeight:700,fontSize:13,color:"#3730A3"}} className="fm">📊 Ver disponible para distribuir en botes</button>
+      )}
       {botes.length>0 && totalPct!==100 && (
         <div style={{background:"#FEF3C7",border:"2px solid #FCD34D",borderRadius:14,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"flex-start",gap:8}}>
           <AlertTriangle className="w-4 h-4" style={{color:"#B45309",flexShrink:0,marginTop:2}}/>
@@ -1220,14 +1301,65 @@ function WithdrawBoteModal({W,close,currentUser,showToast,bote}) {
 // ══════════════════════════════════════════════════════════════════════════════
 // RECURRING EXPENSES
 // ══════════════════════════════════════════════════════════════════════════════
-function RecurrentesScreen({currentUser,isAdmin,recurrentes,botes,setModal,showToast}) {
+function RecurrentesScreen({currentUser,isAdmin,recurrentes,transactions,botes,setModal,showToast}) {
   const [tab,setTab] = useState("fijo");
   const [confirmDel,setConfirmDel] = useState(null);
+  const today = new Date();
+  const todayNum = today.getDate();
+  const monthPrefix = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}`;
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const effDay = r => Math.min(r.day, daysInMonth);
+  const isPaid = r => transactions.some(t=>t.recurrenteId===r.id && t.date && t.date.startsWith(monthPrefix));
+  function daysLeftLabel(r) {
+    const d = effDay(r)-todayNum;
+    if (d>0) return `en ${d} día${d>1?"s":""}`;
+    if (d===0) return "hoy";
+    return "atrasado";
+  }
+
+  const allPendingTotal = useMemo(()=>recurrentes.filter(r=>r.active&&!isPaid(r)).reduce((a,r)=>a+r.amount,0), [recurrentes,transactions]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filtered = recurrentes.filter(r=>r.tipo===tab).sort((a,b)=>a.day-b.day);
-  const monthTotal = filtered.filter(r=>r.active).reduce((a,r)=>a+r.amount,0);
+  const activeList = filtered.filter(r=>r.active);
+  const pausedList = filtered.filter(r=>!r.active);
+  const pendingList = activeList.filter(r=>!isPaid(r));
+  const paidList = activeList.filter(isPaid);
+  const monthTotal = activeList.reduce((a,r)=>a+r.amount,0);
+  const pendingTabTotal = pendingList.reduce((a,r)=>a+r.amount,0);
   const getBote = id => botes.find(b=>b.id===id);
   async function delRec(id){ await deleteDoc(doc(db,"recurrentes",id)); showToast("Gasto recurrente eliminado","#EF4444"); }
   async function toggleActive(r){ await updateDoc(doc(db,"recurrentes",r.id), { active:!r.active }); showToast(r.active?"Pausado ⏸":"Activado ✅"); }
+
+  const renderCard = (r,status) => {
+    const bote = getBote(r.boteId);
+    const paid = status==="paid";
+    const paused = status==="paused";
+    return (
+      <div key={r.id} style={{...S.card,opacity:paused?0.55:1,borderLeft:`4px solid ${r.color}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <span style={{fontSize:26}}>{r.icon}</span>
+            <div>
+              <div style={{fontWeight:700,fontSize:15,color:"#1E293B",textDecoration:paid?"line-through":"none"}} className="fb">{r.name}{paused && " (pausado)"}</div>
+              <div style={{fontSize:12,color:"#64748B"}} className="fm">Día {r.day} · {r.category}{bote?` · 🪣 ${bote.name}`:" · Sin bote"}</div>
+              {!paused && (
+                <div style={{fontSize:11,fontWeight:700,marginTop:2,color:paid?"#22C55E":"#F59E0B"}} className="fm">{paid?"✅ Pagado este mes":`🔄 Pendiente · ${daysLeftLabel(r)}`}</div>
+              )}
+            </div>
+          </div>
+          <div style={{fontSize:18,fontWeight:800,color:paid?"#94A3B8":r.color,whiteSpace:"nowrap",textDecoration:paid?"line-through":"none"}} className="fd">{r.amount.toLocaleString("es-ES")} €</div>
+        </div>
+        {isAdmin && (
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <button onClick={()=>toggleActive(r)} style={{...S.saveBtn,flex:1,fontSize:12,padding:"8px 0",background:r.active?"#F1F5F9":"#DCFCE7",color:r.active?"#64748B":"#166534"}} className="fm">{r.active?"⏸ Pausar":"▶️ Activar"}</button>
+            <button onClick={()=>setModal({type:"editRecurrente",data:r})} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>✏️</button>
+            <button onClick={()=>setConfirmDel(r)} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>🗑️</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div>
       {confirmDel && (
@@ -1241,14 +1373,26 @@ function RecurrentesScreen({currentUser,isAdmin,recurrentes,botes,setModal,showT
         </div>
         {isAdmin && <button style={{...S.addBtnBig,background:currentUser.color,flexShrink:0}} onClick={()=>setModal({type:"addRecurrente",data:{tipo:tab}})}><Plus className="w-4 h-4"/><span className="fm">Añadir</span></button>}
       </div>
+      <div style={{...S.card,background:"linear-gradient(135deg,#EF4444,#1E293B)",color:"#fff",marginBottom:16,marginTop:14}}>
+        <div style={{fontSize:12,opacity:0.8}} className="fm">Pendiente de pagar este mes (todos)</div>
+        <div style={{fontSize:26,fontWeight:800,margin:"4px 0"}} className="fd">{allPendingTotal.toLocaleString("es-ES")} €</div>
+      </div>
       <div style={S.tabs}>
         {[["fijo","Gastos fijos"],["variable","Gastos variables"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} style={{...S.tabBtn,...(tab===k?{borderBottomColor:currentUser.color,color:currentUser.color}:{})}} className="fm">{l}</button>
         ))}
       </div>
       <div style={{...S.card,background:"linear-gradient(135deg,#3B82F6,#1E293B)",color:"#fff",marginBottom:16}}>
-        <div style={{fontSize:12,opacity:0.8}} className="fm">Total mensual ({tab==="fijo"?"fijos":"variables"}) activos</div>
-        <div style={{fontSize:26,fontWeight:800,margin:"4px 0"}} className="fd">{monthTotal.toLocaleString("es-ES")} €</div>
+        <div style={{display:"flex",gap:20}}>
+          <div>
+            <div style={{fontSize:12,opacity:0.8}} className="fm">Total mensual ({tab==="fijo"?"fijos":"variables"})</div>
+            <div style={{fontSize:22,fontWeight:800,margin:"4px 0"}} className="fd">{monthTotal.toLocaleString("es-ES")} €</div>
+          </div>
+          <div>
+            <div style={{fontSize:12,opacity:0.8}} className="fm">Pendiente en esta pestaña</div>
+            <div style={{fontSize:22,fontWeight:800,margin:"4px 0"}} className="fd">{pendingTabTotal.toLocaleString("es-ES")} €</div>
+          </div>
+        </div>
       </div>
       {filtered.length===0 && (
         <div style={{textAlign:"center",padding:"32px 16px",background:"#F8FAFC",borderRadius:16}}>
@@ -1257,30 +1401,24 @@ function RecurrentesScreen({currentUser,isAdmin,recurrentes,botes,setModal,showT
           <p style={{color:"#64748B",fontSize:13}} className="fm">Añade uno y se registrará solo cada mes en su día de pago.</p>
         </div>
       )}
-      {filtered.map(r=>{
-        const bote = getBote(r.boteId);
-        return (
-          <div key={r.id} style={{...S.card,opacity:r.active?1:0.55,borderLeft:`4px solid ${r.color}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                <span style={{fontSize:26}}>{r.icon}</span>
-                <div>
-                  <div style={{fontWeight:700,fontSize:15,color:"#1E293B"}} className="fb">{r.name}{!r.active && " (pausado)"}</div>
-                  <div style={{fontSize:12,color:"#64748B"}} className="fm">Día {r.day} · {r.category}{bote?` · 🪣 ${bote.name}`:" · Sin bote"}</div>
-                </div>
-              </div>
-              <div style={{fontSize:18,fontWeight:800,color:r.color,whiteSpace:"nowrap"}} className="fd">{r.amount.toLocaleString("es-ES")} €</div>
-            </div>
-            {isAdmin && (
-              <div style={{display:"flex",gap:8,marginTop:12}}>
-                <button onClick={()=>toggleActive(r)} style={{...S.saveBtn,flex:1,fontSize:12,padding:"8px 0",background:r.active?"#F1F5F9":"#DCFCE7",color:r.active?"#64748B":"#166534"}} className="fm">{r.active?"⏸ Pausar":"▶️ Activar"}</button>
-                <button onClick={()=>setModal({type:"editRecurrente",data:r})} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>✏️</button>
-                <button onClick={()=>setConfirmDel(r)} style={{...S.iconBtn,border:"1.5px solid #E2E8F0",borderRadius:10,width:40}}>🗑️</button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {pendingList.length>0 && (
+        <div style={{marginBottom:6}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:8}} className="fm">🔄 PENDIENTES DE PAGAR ({pendingList.length})</div>
+          {pendingList.map(r=>renderCard(r,"pending"))}
+        </div>
+      )}
+      {paidList.length>0 && (
+        <div style={{marginBottom:6}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:8}} className="fm">✅ YA PAGADOS ({paidList.length})</div>
+          {paidList.map(r=>renderCard(r,"paid"))}
+        </div>
+      )}
+      {pausedList.length>0 && (
+        <div style={{marginBottom:6}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginBottom:8}} className="fm">⏸ PAUSADOS ({pausedList.length})</div>
+          {pausedList.map(r=>renderCard(r,"paused"))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1381,6 +1519,8 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,recurrentes,setMo
     return m;
   },[recurrentes,numDays]);
 
+  const isRecPaid = r => transactions.some(t=>t.recurrenteId===r.id && t.date && t.date.startsWith(monthPrefix));
+
   function changeMonth(delta){
     let m=cursor.m+delta, y=cursor.y;
     if(m<0){m=11;y--;} else if(m>11){m=0;y++;}
@@ -1429,6 +1569,8 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,recurrentes,setMo
           const hasExpense = isAdmin && dayTx.some(t=>t.type==="expense");
           const isToday = dateStr===todayStr;
           const dayRecurrentes = recByDay[d]||[];
+          let dayPaidSum=0, dayPendingSum=0;
+          dayRecurrentes.forEach(r=>{ if(isRecPaid(r)) dayPaidSum+=r.amount; else dayPendingSum+=r.amount; });
           return (
             <button key={i} onClick={()=>setSelectedDate(dateStr)} style={{position:"relative",aspectRatio:"1",borderRadius:10,border:isToday?`2px solid ${currentUser.color}`:"1.5px solid #F1F5F9",background:selectedDate===dateStr?currentUser.color+"15":"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,padding:2}}>
               {dayRecurrentes.length>0 && <span style={{position:"absolute",top:-4,right:-2,fontSize:10,lineHeight:1}}>🔄</span>}
@@ -1438,6 +1580,12 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,recurrentes,setMo
                 {hasExpense && <span style={{width:5,height:5,borderRadius:"50%",background:"#EF4444"}}/>}
                 <span style={{width:5,height:5,borderRadius:"50%",background:"#F59E0B"}}/>
               </div>
+              {(dayPaidSum>0||dayPendingSum>0) && (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",lineHeight:1.1}}>
+                  {dayPaidSum>0 && <span style={{fontSize:7,fontWeight:700,color:"#22C55E",textDecoration:"line-through"}} className="fm">{dayPaidSum}€</span>}
+                  {dayPendingSum>0 && <span style={{fontSize:7,fontWeight:700,color:"#94A3B8"}} className="fm">{dayPendingSum}€</span>}
+                </div>
+              )}
             </button>
           );
         })}
@@ -1494,16 +1642,16 @@ function CalendarScreen({currentUser,isAdmin,transactions,menu,recurrentes,setMo
             {selRecurrentes.length>0 && (
               <div style={{marginBottom:16}}>
                 <div style={{fontSize:12,fontWeight:700,color:"#64748B",marginBottom:8}} className="fm">🔄 Gastos recurrentes programados</div>
-                {selRecurrentes.map(r=>(
+                {selRecurrentes.map(r=>{ const paid=isRecPaid(r); return (
                   <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0"}}>
                     <span style={{fontSize:16}}>{r.icon}</span>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:600,color:"#1E293B"}} className="fb">{r.name}</div>
-                      <div style={{fontSize:11,color:"#94A3B8"}} className="fm">{r.tipo==="fijo"?"Fijo":"Variable"}</div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#1E293B",textDecoration:paid?"line-through":"none"}} className="fb">{r.name}</div>
+                      <div style={{fontSize:11,color:paid?"#22C55E":"#94A3B8"}} className="fm">{paid?"✅ Pagado":(r.tipo==="fijo"?"Fijo":"Variable")}</div>
                     </div>
-                    <span style={{fontSize:13,fontWeight:700,color:r.color}} className="fb">{r.amount.toLocaleString("es-ES")} €</span>
+                    <span style={{fontSize:13,fontWeight:700,color:paid?"#22C55E":r.color,textDecoration:paid?"line-through":"none"}} className="fb">{r.amount.toLocaleString("es-ES")} €</span>
                   </div>
-                ))}
+                ); })}
               </div>
             )}
             {isAdmin && (
